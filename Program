@@ -1,0 +1,1329 @@
+using Sandbox.Game.EntityComponents;
+using Sandbox.ModAPI.Ingame;
+using Sandbox.ModAPI.Interfaces;
+using SpaceEngineers.Game.ModAPI.Ingame;
+using System.Collections.Generic;
+using System.Collections;
+using System.Linq;
+using System.Text;
+using System;
+using VRage.Collections;
+using VRage.Game.Components;
+using VRage.Game.GUI.TextPanel;
+using VRage.Game.ModAPI.Ingame.Utilities;
+using VRage.Game.ModAPI.Ingame;
+using VRage.Game.ObjectBuilders.Definitions;
+using VRage.Game;
+using VRage;
+using VRageMath;
+using System.Collections.Specialized;
+using Sandbox.Game.Screens.Helpers;
+using ParallelTasks;
+using System.Threading;
+
+namespace IngameScript
+{
+    partial class Program : MyGridProgram
+    {
+        List<IMyTextSurface> lcdList = new List<IMyTextSurface>();
+        double currentRefreshTime = 0;
+        double currentTime = 0;
+        const double updateTime = 1.0 / 6.0;
+        List<IMyCameraBlock> cameras = new List<IMyCameraBlock>();
+        List<MyDetectedEntityInfo> detectedTargets = new List<MyDetectedEntityInfo>();
+        double maxScanRange = 10000;       
+        //const int Max_Store_Charge = 100000;
+        IMyShipController shipController = null;
+        IMyUnicastListener unisource;
+        const double SERVER_SPEED = 100;
+        MyIni ini = new MyIni();
+        List<MyIniKey> keysList = new List<MyIniKey>();
+        List<IMyShipMergeBlock> seperationMergesList = new List<IMyShipMergeBlock>();
+        MyIni tempIni = new MyIni();
+        public Screen currentScreen;
+        public Screen previousScreen;
+        public Screen menuScreen;
+        List<Screen> screensList = new List<Screen>();
+        List<BackgroundTask> backgroundTasksList = new List<BackgroundTask>();
+        BackgroundTask priorityTask = null;
+        bool multiFire = false;
+        List<Sound> soundsList = new List<Sound>();
+        List<IMySoundBlock> soundBlockList = new List<IMySoundBlock>();
+        List<MissileLauncher> LaunchersList = new List<MissileLauncher>();
+        List<AttachedMissile> missileList = new List<AttachedMissile>();
+        List<MissileType> missileTypeList = new List<MissileType>();
+        List<ManagedDisplay> ManagedDisplaysList = new List<ManagedDisplay>();
+        const string Section = "Swarm Display";
+
+        IMyShipController cockpit;
+        public enum Mode
+        {
+            None = 0,
+            Launch = 1,
+            LaunchAll = 2,
+            WaitForMsgReplySingle = 3,
+            WaitForMsgReplayAll = 4,
+            ThrustAway = 5,
+            ThrustAwayThenFire = 6,
+            StopThrustAway = 7,
+            StopThrustAwayThenFire = 8,
+            Scan = 9,
+            Burn = 10
+        }
+        readonly Dictionary<string, Action<string>> commands;
+        public Program()
+        {
+            cockpit= GridTerminalSystem.GetBlockWithName("Cockpit") as IMyShipController;
+            cockpit.CustomData = "";
+            Me.CustomName = "PB Swarm Missile Control";
+            FindDisplays();            
+            commands = new Dictionary<string, Action<string>>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["stop"] = Stop,
+                ["template"] = GenerateTemplate,
+                ["test"] = Test,
+            };
+            unisource = IGC.UnicastListener;
+            unisource.SetMessageCallback();
+            CheckTemplate();
+            screensList.Clear();
+            currentScreen = new MenuScreen(this, "menu", null, "Swarm Menu", "", "", "", "", Color.Black, Color.White, 1f);
+            screensList.Add(currentScreen);
+            menuScreen = currentScreen;
+
+            screensList.Add(new ScanScreen(this, "scan", menuScreen, "Scan Menu", "", "", "", "", Color.Black, Color.White, 1f, maxScanRange));
+            screensList.Add(new TargetsScreen(this, "targets", menuScreen, "Targets", "", "", "", "", Color.Black, Color.White, 1f));
+            IMyBlockGroup soundsGroup = GridTerminalSystem.GetBlockGroupWithName("SoundBlocks");
+            if (soundsGroup != null)
+            {
+                soundsGroup.GetBlocksOfType<IMySoundBlock>(soundBlockList);
+                if (soundBlockList.Count == 0)
+                {
+                    Echo("No sound blocks specified");
+                }
+                else
+                {
+                    Echo("Sound Blocks Found: " + soundBlockList.Count);
+                }
+            }
+            else
+            {
+                Echo("SoundBlocks group not found");
+            }
+
+            IMyBlockGroup launcherGroup = GridTerminalSystem.GetBlockGroupWithName("Launchers");            
+            if (launcherGroup != null)
+            {
+                List<IMyTerminalBlock> mergesList = new List<IMyTerminalBlock>();
+
+                launcherGroup.GetBlocksOfType<IMyShipMergeBlock>(mergesList);
+                if (mergesList.Count == 0)
+                {
+                    Echo("No launch blocks found");
+                }
+                else
+                {
+                    foreach (IMyShipMergeBlock launcher in mergesList)
+                    {
+                        LaunchersList.Add(new MissileLauncher(launcher));
+                    }
+                }
+            }
+            else
+            {
+                Echo("Error: Launchers group not found");
+            }
+            screensList.Add(new TargetSelectionScreen(this, "targetSelection", menuScreen, "Target Selection", "", "", "", "", Color.Black, Color.White, 0.6f));
+            screensList.Add(new ProfileSelectionScreen(this, "profileSelection", menuScreen, "Profile Selection", "", "", "", "", Color.Black, Color.White, 0.6f));
+            screensList.Add(new LaunchControlScreen(this, "launchControl", menuScreen, "Launch Control Menu", "", "", "", "", Color.Black, Color.White, 1f));            
+            screensList.Add(new SettingsScreen(this, "settings", menuScreen, "Settings", "", "", "", "", Color.Black, Color.White, 1f));
+            screensList.Add(new PreparationScreen(this, "preparation", menuScreen, "Preparation", "", "", "", "", Color.Black, Color.White, 1f));
+            screensList.Add(new LaunchSequenceScreen(this, "sequence", menuScreen, "Launch Sequence", "", "", "", "", Color.Black, Color.White, 1f));
+            currentScreen.DefaultDisplay();
+            //currentScreen.Display();
+        }
+
+        public void Main(string input, UpdateType updateSource)
+        {
+            while (unisource.HasPendingMessage)
+            {
+                cockpit.CustomData += "Message available\n";
+                MyIGCMessage msg = unisource.AcceptMessage();
+                Echo("Msg1: " + msg.Data.ToString());
+                if (msg.Data is MyTuple<string, long, string, string, MyTuple<string, double, float, float>>)
+                {
+                    cockpit.CustomData += "Msg format ok\n";
+                    var data = (MyTuple<string, long, string, string, MyTuple<string, double, float, float>>)msg.Data;
+                    IMyShipMergeBlock shipLauncher = GridTerminalSystem.GetBlockWithId(data.Item2) as IMyShipMergeBlock;
+                    if (shipLauncher != null)
+                    {
+                        cockpit.CustomData += "Ship launcher found. Launched\n";
+                        shipLauncher.CustomData = "LAUNCHED";
+                        shipLauncher.Enabled = false;
+                        TargetsScreen ts = Screen.GetScreen(this, "targets") as TargetsScreen;
+                        foreach (DetectedGrid grid in ts.DetectedGridsList)
+                        {
+                            if (grid.Info.EntityId.ToString() == data.Item4)
+                            {
+                                grid.Attacks += 1;
+                                break;
+                            }
+                        }                        
+                        UpdateLaunchers(true);
+                        Sound.PlaySound(this, "launched");
+                        if (data.Item3 == "all" || data.Item3 == "sequence")
+                        {
+                            multiFire = true;
+                        }
+                        else
+                        {
+                            cockpit.CustomData += "Adding background task thrust away\n";
+                            BackgroundTask.AddBackgroundTask(this, "thrustAway", "Thrust Away", "Reversing", 0, 0, Screen.GetScreen(this, "launchControl"), true, true, false, true, 1, true);
+                        }
+                    }
+                    else
+                    {
+                        Stop("Error: Ship Launcher not found: " + data.Item2.ToString());
+                    }
+                }
+            }
+            if (multiFire)
+            {
+                BackgroundTask.AddBackgroundTask(this, "thrustAway", "Thrust Away", "Reversing", 0, 0, Screen.GetScreen(this, "launchControl"), true, true, false, true, 1, true);
+                multiFire = false;
+            }
+            BackgroundTask.AddBackgroundTask(this, "updateLaunchers", "Launcher Check", "[C]", 0, 0, null, true, true, true, false, 0, false);
+            if ((updateSource & (UpdateType.Trigger | UpdateType.Terminal)) != 0)
+            {
+                if (!string.IsNullOrEmpty(input))
+                {
+                    Echo("INPUT: " + input);
+                    if (input == "a" || input == "b" || input == "c" || input == "d" || input == "e" || input == "f" || input == "g" || input == "h" || input == "i")
+                    {
+                        Echo("INPUTzzz IS : " + input);
+                        Echo("current screen is " + currentScreen.Id);
+                        //menuScreen.BtnPress(input);
+                        //menuScreen.Display();
+                        currentScreen.BtnPressHandler(input);
+                        currentScreen.Display();
+                    }
+                    else if (!RunCommand(input, null))
+                    {
+                        Echo("Error: Could not find command: " + input + "\nValid Commands:\n");
+                        foreach (KeyValuePair<string, Action<string>> command in commands)
+                        {
+                            Echo(command.Key);
+                        }
+                    }
+                }
+                else
+                {
+                    Echo("Input was blank\nValid Inputs:\nlaunch\nlaunch all\ntemplate\nstop");
+                }
+            }
+            else
+            {
+                double lastRunTime = Runtime.TimeSinceLastRun.TotalMilliseconds;
+                currentRefreshTime += lastRunTime;
+                currentTime += lastRunTime;
+                if (priorityTask != null)
+                {
+                    ProcessTask(priorityTask, lastRunTime);
+                }
+                if (backgroundTasksList.Count > 0)
+                {
+                    for (int i = backgroundTasksList.Count - 1; i >= 0; i--)
+                    {                        
+                        if (!backgroundTasksList[i].PriorityTask)
+                        {
+                            ProcessTask(backgroundTasksList[i], lastRunTime);
+                        }                            
+                    }
+                }
+                BackgroundTask.CleanUp(this);
+                if (backgroundTasksList.Count == 0)
+                {
+                    Runtime.UpdateFrequency = UpdateFrequency.None;
+                }
+            }
+        }
+
+        public void ProcessTask(BackgroundTask task, double lastRunTime)
+        {            
+            if (task.IsActive)
+            {
+                if (task.IsRunning)
+                {
+                    if (task.CurrentTime >= task.IntervalTime)
+                    {
+                        Echo("Task: " + task.Name);
+                        task.Running();
+                        task.CurrentTime = 0;
+                    }
+                    else
+                    {
+                        task.CurrentTime += lastRunTime;
+                    }
+                }
+                else
+                {
+                    if (task.CurrentTime >= task.StartTime)
+                    {
+                        task.IsRunning = true;
+                        Echo("NOW RUNNING");
+                    }
+                    else
+                    {
+                        task.CurrentTime += lastRunTime;
+                    }
+                }
+            }
+        }
+
+        public bool CheckTemplate()
+        {
+            bool error = false;
+            if (Me.CustomData != "")
+            {
+                ini.Clear();
+                MyIniParseResult result;
+                if (!ini.TryParse(Me.CustomData, out result))
+                {
+                    Echo("CANT PARSE");
+                    //throw new Exception(result.ToString());
+                    error = true;
+                }
+                else
+                {
+                    string sectionName = "Blocks";
+                    if (ini.ContainsSection(sectionName))
+                    {
+                        shipController = GridTerminalSystem.GetBlockWithName(ini.Get(sectionName, "Cockpit").ToString()) as IMyShipController;
+                        if (shipController == null)
+                        {
+                            Echo("Error no such cockpit: " + ini.Get(sectionName, "Cockpit").ToString());
+                            error = true;
+                        }
+                    }
+                    else
+                    {
+                        Echo("Error: Section Missing: " + sectionName);
+                        error = true;
+                    }
+                    sectionName = "Screens";
+                    if (ini.ContainsSection(sectionName))
+                    {
+                        Echo("found screens section");
+                        for (int i = 1; i <= 10; i++)
+                        {
+                            string screenName = ini.Get(sectionName, "Screen " + i).ToString();
+                            IMyTextSurface ts = null;
+                            if (screenName != "")
+                            {
+                                Echo("screen " + i + " not blank");
+                                if (screenName.Contains("::"))
+                                {
+                                    Echo("scren has dot dot");
+                                    string[] screenParts = screenName.Split(new string[] { "::" }, StringSplitOptions.None);
+                                    if (screenParts.Length == 2)
+                                    {
+                                        IMyTerminalBlock surfaceBlock = GridTerminalSystem.GetBlockWithName(screenParts[0]);
+                                        if (surfaceBlock != null)
+                                        {
+                                            if (surfaceBlock is IMyTextSurfaceProvider)
+                                            {
+                                                IMyTextSurfaceProvider surfaceProviderBlock = surfaceBlock as IMyTextSurfaceProvider;
+                                                int surfaceNum;
+                                                if (int.TryParse(screenParts[1], out surfaceNum))
+                                                {
+                                                    int realSurfaceNum = surfaceNum - 1;
+                                                    if (surfaceProviderBlock.GetSurface(realSurfaceNum) != null)
+                                                    {
+                                                        ts = surfaceProviderBlock.GetSurface(realSurfaceNum);
+                                                    }
+                                                    else
+                                                    {
+                                                        Echo("Error: Surface was not found. Surface: " + surfaceNum);
+                                                        error = true;
+                                                    }
+                                                }
+                                                else
+                                                {
+                                                    Echo("Error not a valid surface number: " + screenParts[1]);
+                                                    error = true;
+                                                }
+                                            }
+                                            else
+                                            {
+                                                Echo("Error: Block does not have any text panels");
+                                                error = true;
+                                            }
+                                        }
+                                    }
+                                    else
+                                    {
+                                        Echo("Error: Not a valid surface name value: " + screenParts[0]);
+                                        error = true;
+                                    }
+                                }
+                                else
+                                {
+                                    ts = GridTerminalSystem.GetBlockWithName(screenName) as IMyTextSurface;
+                                }
+                                if (ts != null)
+                                {
+                                    ts.ContentType = ContentType.TEXT_AND_IMAGE;
+                                    ts.FontSize = 1f;
+                                    ts.Alignment = TextAlignment.LEFT;
+                                    ts.Font = "Monospace";
+                                    lcdList.Add(ts);
+                                    Echo("Screen Added: " + ts.DisplayName);
+                                }
+                            }
+                        }
+                    }
+                    else
+                    {
+                        Echo("Screens template missing");
+                        error = true;
+                    }
+                    if (!error)
+                    {
+                        Echo("<<TEMPLATE LOADED>>");
+                    }
+                    else
+                    {
+                        Echo("<<ERRORS LOADING TEMPLATE>>");
+                    }
+                }
+            }
+            else
+            {
+                Echo("Error: Template not found");
+                error = true;
+            }
+            return error;
+        }
+
+        public void Test(string args)
+        {
+            Echo("CALLED THE TEST: " + args);
+            Runtime.UpdateFrequency = UpdateFrequency.None;
+            UpdateLaunchers(true);
+        }
+
+        public bool RunCommand(string command, string args)
+        {
+            Action<string> action;
+            if (commands.TryGetValue(command, out action))
+            {
+                if (args == null)
+                {
+                    action(command);
+                }
+                else
+                {
+                    action(args);
+                }
+                return true;
+            }
+            return false;
+        }
+        public void Stop(string args = null)
+        {
+            if (args != null)
+            {
+                Echo(args);
+            }
+            Echo("Stopping");
+            Runtime.UpdateFrequency = UpdateFrequency.None;
+        }
+
+        public void GenerateTemplate(string args = null)
+        {
+            StringBuilder templateText = new StringBuilder("[Blocks]\nCockpit = ");
+            templateText.AppendLine("[Screens]");
+            for (int i = 1; i <= 10; i++)
+            {
+                templateText.AppendLine("Screen " + i + " = ");
+            }
+            templateText.AppendLine("---");
+            Me.CustomData = templateText.ToString();
+            Echo("TEMPLATE GENERATED");
+        }
+
+        public IMyTerminalBlock GetBlock(string data, IMyTerminalBlock shipLauncher, IMyTerminalBlock missileMerge)
+        {
+            Vector3D offset;
+            IMyTerminalBlock block = null;
+            if (TryParse(data, out offset))
+            {
+                Echo($"Offset = {offset.ToString()}");
+
+                var newOffset = Vector3D.TransformNormal(offset, missileMerge.WorldMatrix);
+                Echo($"NewOffset = {newOffset.ToString()}");
+
+                var pbPos = missileMerge.CubeGrid.WorldToGridInteger(missileMerge.GetPosition() + newOffset);
+                Echo($"OtherPos = {missileMerge.Position}");
+                Echo($"pbPos = {pbPos}");
+                block = shipLauncher.CubeGrid.GetCubeBlock(pbPos)?.FatBlock as IMyTerminalBlock;
+                if (block != null)
+                {
+                    Echo($"Block found = {block != null}");
+                    Echo("Block name: " + block.CustomName);
+                }
+                else
+                {
+
+                }
+            }
+            else
+            {
+                Echo($"Unable to parse offset1!");
+                return null;
+            }
+            return block;
+        }
+
+        bool TryParse(string input, out Vector3D vector)
+        {
+            input = input.Trim('{', '}', ' ');
+            return Vector3D.TryParse(input, out vector);
+        }
+
+        IMyShipMergeBlock GetMerge(IMyTerminalBlock mrg1)
+        {
+            IMyShipMergeBlock merge = null;
+            //Find direction that block merges to
+            Matrix mat;
+            mrg1.Orientation.GetMatrix(out mat);
+            Vector3I up1 = new Vector3I(mat.Up);
+
+            //Check if there is a block in front of merge face
+            IMySlimBlock sb = mrg1.CubeGrid.GetCubeBlock(mrg1.Position + up1);
+            if (sb == null)
+            {
+                return null;
+            }
+
+            //Check if the other block is actually a merge block
+            IMyShipMergeBlock mrg2 = sb.FatBlock as IMyShipMergeBlock;
+            if (mrg2 == null)
+            {
+                return null;
+            }
+
+            //Check that other block is correctly oriented
+            mrg2.Orientation.GetMatrix(out mat);
+            Vector3I up2 = new Vector3I(mat.Up);
+            if (up2 == -up1)
+            {
+                merge = mrg2;
+            }
+            return merge;
+        }
+        public double VecToRange(Vector3D tar, Vector3D org)
+        {
+            return Math.Sqrt(Math.Pow(tar.X - org.X, 2) + Math.Pow(tar.Y - org.Y, 2) + Math.Pow(tar.Z - org.Z, 2));
+        }
+
+        public double VecMag(Vector3D vec)
+        {
+            return Math.Sqrt(Math.Pow(vec.X, 2) + Math.Pow(vec.Y, 2) + Math.Pow(vec.Z, 2));
+        }
+        public void OneDirectionalThrust(IMyTerminalBlock refBlock = null, float amount = 1, int direction = -1)
+        {
+            //0. Right 1. Left 2. Up, 3. Down 4. Backward 5. Forward
+            if (refBlock == null)
+            {
+                refBlock = shipController;
+            }
+            if (refBlock != null)
+            {
+                List<IMyTerminalBlock> thrusters = new List<IMyTerminalBlock>();
+                GridTerminalSystem.GetBlocksOfType<IMyThrust>(thrusters);
+                List<IMyThrust>[] thrustList = OrganizeThrusters(thrusters, refBlock);
+
+                foreach (var thruster in thrustList[direction])
+                {
+                    if (!(thruster.CustomName.Contains("<SWARM>")))
+                    {
+                        thruster.Enabled = true;
+                        thruster.ThrustOverridePercentage = amount;
+                    }
+                }
+            }
+        }
+
+        List<IMyThrust>[] OrganizeThrusters(List<IMyTerminalBlock> thrusters, IMyTerminalBlock reference)
+        {
+            Matrix refm;
+            reference.Orientation.GetMatrix(out refm);
+            var org = new List<IMyThrust>[6];
+            for (int dir = 0; dir < 6; ++dir) org[dir] = new List<IMyThrust>();
+            for (int i = 0; i < thrusters.Count; ++i)
+            {
+                Matrix bmat;
+                thrusters[i].Orientation.GetMatrix(out bmat);
+                bmat = bmat * Matrix.Transpose(refm);
+                int dir = (int)bmat.Forward.Dot(new Vector3(1, 2, 3));
+                dir = (2 * Math.Abs(dir) - 2) + (Math.Sign(dir) + 1) / 2;
+                org[dir].Add(thrusters[i] as IMyThrust);
+            }
+            return org;
+        }
+
+        public IMyTerminalBlock GetBlock(string data, IMyTerminalBlock missileMerge)
+        {
+            Vector3D offset;
+            IMyTerminalBlock block = null;
+            Echo("ZData: " + data);
+            if (TryParse(data, out offset))
+            {
+                Echo($"Offset = {offset.ToString()}");
+                var newOffset = Vector3D.TransformNormal(offset, missileMerge.WorldMatrix);
+                Echo($"NewOffset = {newOffset.ToString()}");
+                var pbPos = missileMerge.CubeGrid.WorldToGridInteger(missileMerge.GetPosition() + newOffset);
+                Echo($"OtherPos = {missileMerge.Position}");
+                Echo($"pbPos = {pbPos}");
+                block = missileMerge.CubeGrid.GetCubeBlock(pbPos)?.FatBlock as IMyTerminalBlock;
+                if (block != null)
+                {
+                    Echo($"Block found = {block != null}");
+                    Echo("Block name: " + block.CustomName);
+                }
+                else
+                {
+                    Echo("Error block was not found");
+                }
+            }
+            else
+            {
+                Echo($"Unable to parse offset! '" + data + "'");
+                return null;
+            }
+            return block;
+        }
+
+        public static IMyTerminalBlock GetRelativeBlock(IMyTerminalBlock reference, Vector3I direction)
+        {
+            Matrix mat;
+            reference.Orientation.GetMatrix(out mat);
+            mat.Translation = reference.Position;
+            Vector3I.Transform(ref direction, ref mat, out direction);
+            IMySlimBlock sb = reference.CubeGrid.GetCubeBlock(direction);
+            return sb == null ? null : sb.FatBlock as IMyTerminalBlock;
+        }
+
+        private void FindDisplays()
+        {
+            ManagedDisplaysList.Clear();
+            List<IMyTextSurfaceProvider> surfacesList = new List<IMyTextSurfaceProvider>();
+            GridTerminalSystem.GetBlocksOfType<IMyTextSurfaceProvider>(surfacesList);
+            foreach (IMyTerminalBlock TextSurfaceProvider in surfacesList)
+            {
+                if (((IMyTextSurfaceProvider)TextSurfaceProvider).SurfaceCount > 0 && (MyIni.HasSection(TextSurfaceProvider.CustomData, Section)))
+                {
+                    ini.TryParse(TextSurfaceProvider.CustomData);
+                    var displayNumber = ini.Get(Section, "display").ToUInt16();
+                    if (displayNumber < ((IMyTextSurfaceProvider)TextSurfaceProvider).SurfaceCount || ((IMyTextSurfaceProvider)TextSurfaceProvider).SurfaceCount == 0)
+                    {
+                        Echo("Found a surface. Display num:" + displayNumber);
+                        var display = ((IMyTextSurfaceProvider)TextSurfaceProvider).GetSurface(ini.Get(Section, "display").ToInt16());
+                        float scale = ini.Get(Section, "scale").ToSingle(1.0f);
+                        string DefaultColor = "FF4500";
+                        string ColorStr = ini.Get(Section, "color").ToString(DefaultColor);
+                        if (ColorStr.Length < 6)
+                            ColorStr = DefaultColor;
+                        Color color = new Color()
+                        {
+                            R = byte.Parse(ColorStr.Substring(0, 2), System.Globalization.NumberStyles.HexNumber),
+                            G = byte.Parse(ColorStr.Substring(2, 2), System.Globalization.NumberStyles.HexNumber),
+                            B = byte.Parse(ColorStr.Substring(4, 2), System.Globalization.NumberStyles.HexNumber),
+                            A = 255
+                        };
+                        ManagedDisplaysList.Add(new ManagedDisplay(display, this, scale, color));
+                    }
+                    else
+                    {
+                        Echo("Warning: " + TextSurfaceProvider.CustomName + " doesn't have a display number " + ini.Get(Section, "display").ToString());
+                    }
+                }
+            }
+        }        
+
+        public string DisplayBackgroundTasks()
+        {
+            string taskText = "";
+            foreach (BackgroundTask bTask in backgroundTasksList)
+            {
+                taskText += bTask.Name + ": " + bTask.Status + "  ";
+            }
+            return taskText;
+        }
+
+        public void WriteToLCD(string lcdText, float fontSize, bool append = false)
+        {
+            if (lcdList.Count > 0)
+            {
+                foreach (IMyTextSurface textSurface in lcdList)
+                {
+                    float fontScale = 1.0f / fontSize;
+                    float pHeight = textSurface.SurfaceSize.Y / 37f;
+                    int numLines = (int)(pHeight * fontScale);
+                    int charsPerLine = (int)(textSurface.SurfaceSize.Y * 0.04f * fontScale) - 2; // - 2 to allow for a margin
+
+                    //lcdText=InsertNewLines(lcdText, "Monospace", fontScale, textSurface, textSurface.SurfaceSize.X-2);
+                    //textSurface.FontSize = fontScale;
+                    textSurface.FontSize = fontSize;
+                    textSurface.WriteText(lcdText + "\n", append);
+                    textSurface.ContentType = VRage.Game.GUI.TextPanel.ContentType.TEXT_AND_IMAGE;
+                    //textSurface.Enabled = true;
+                }
+            }
+            else
+            {
+                Echo("Error - No LCD Found");
+            }
+        }        
+
+        public class BackgroundTask : IEquatable<BackgroundTask>
+        {
+            public Program Prog;
+            public string Id { get; set; }
+            public string Name { get; set; }
+            public bool IsActive { get; set; } = false;
+            public bool IsRunning { get; set; } = false;
+            public bool UseLoops { get; set; } = false;
+            public string Status { get; set; }
+            public double StartTime { get; set; }
+            public double CurrentTime { get; set; } = 0;
+            public double IntervalTime { get; set; } = -1;
+            public int Loops { get; set; } = -1;
+            public int CurrentLoop { get; set; } = 0;
+            public double RunUntilTime { get; set; }
+            public Screen Screen { get; set; } = null;
+            public bool PermanentTask { get; set; } = false;
+            public bool PriorityTask { get; set; } = false;
+
+            private BackgroundTask(Program prog, string id, string name, string status, double startTime, double intervalTime,
+                Screen screen, bool isActive, bool isRunning, bool permanentTask, bool useLoops, int loops, bool priorityTask)
+            {
+                Prog = prog;
+                Id = id;
+                Name = name;
+                Status = status;
+                StartTime = startTime;
+                IntervalTime = intervalTime;
+                Screen = screen;
+                IsActive = isActive;
+                IsRunning = isRunning;
+                PermanentTask = permanentTask;
+                UseLoops = useLoops;
+                Loops = loops;
+                CurrentLoop = loops;
+                PriorityTask = priorityTask;
+            }
+            public static void AddBackgroundTask(Program prog, string id, string name, string status, double startTime,
+                double intervalTime, Screen screen, bool isActive, bool isRunning, bool permanentTask, bool useLoops, int loops, bool priorityTask)
+            {
+                if (GetTask(prog, id) == null)
+                {
+                    BackgroundTask t = new BackgroundTask(prog, id, name, status, startTime, intervalTime, screen, isActive, isRunning, permanentTask, useLoops, loops, priorityTask);
+                    if (priorityTask)
+                    {
+                        foreach (BackgroundTask task in prog.backgroundTasksList)
+                        {
+                            if (task.Id != "fade")
+                            {
+                                task.PriorityTask = false;
+                                task.IsActive = false;
+                                task.IsRunning = false;
+                            }
+                        }
+                        prog.priorityTask = t;
+                    }
+                    prog.backgroundTasksList.Add(t);
+                    prog.Echo("New Task Added");
+                    if (prog.Runtime.UpdateFrequency != UpdateFrequency.Update1)
+                    {
+                        prog.Echo("verissimo");
+                        prog.Runtime.UpdateFrequency = UpdateFrequency.Update1;
+                    }
+                }
+                else
+                {
+                    prog.Echo("Error: Background Task already exists: " + id);
+                }
+            }
+
+            public static void StopBackgroundTask(Program prog, string id, bool remove = true)
+            {
+                BackgroundTask task = GetTask(prog, id);
+                if (task != null)
+                {
+                    prog.Echo("Stopping task: " + id);
+                    task.IsActive = false;
+                    task.IsRunning = false;
+                    if (remove)
+                    {
+                        prog.Echo("Removing task: " + id);
+                        task.PermanentTask = false;
+                        task.CurrentLoop = 0;
+                    }
+                    if (task.Screen == null)
+                    {
+                        Screen.GlobalTaskAborted(prog, task);
+                    }
+                    else 
+                    {
+                        task.Screen.TaskAborted(task);
+                    }
+                }
+                else
+                {
+                    prog.Echo("Error: Could not remove task. Task not found: " + id);
+                }
+            }
+            public bool Equals(BackgroundTask other)
+            {
+                if (this.Name == other.Name)
+                {
+                    return true;
+                }
+                else
+                {
+                    return false;
+                }
+            }
+            public static void Activate(Program prog)
+            {
+                if (prog.backgroundTasksList.Count > 0)
+                {
+                    prog.Runtime.UpdateFrequency = UpdateFrequency.Update1;
+                }
+            }
+            public void Start()
+            {
+                if (Screen == null)
+                {
+                    Screen.GlobalTaskStart(Prog, this);
+                }
+                else
+                {
+                    Screen.TaskStart(this);
+                }
+                
+            }
+            public void Running()
+            {
+                if (Screen == null)
+                {
+                    Screen.GlobalTaskRunning(Prog, this);
+                }
+                else
+                {
+                    Screen.TaskRunning(this);
+                }
+                
+                if (UseLoops)
+                {
+                    CurrentLoop--;
+                    if (CurrentLoop == 0)
+                    {
+                        End();
+                    }
+                }
+            }
+            public void End()
+            {
+                IsActive = false;
+                IsRunning = false;
+                if (Screen == null)
+                {
+                    Screen.GlobalTaskEnd(Prog, this);
+                }
+                else
+                {
+                    Screen.TaskEnd(this);
+                }                
+            }
+
+            public static void CleanUp(Program prog)
+            {                
+                for (int i = prog.backgroundTasksList.Count - 1; i >= 0; i--)
+                {
+                    if (!prog.backgroundTasksList[i].PermanentTask && prog.backgroundTasksList[i].CurrentLoop == 0)
+                    {                        
+                        if (prog.backgroundTasksList[i].Id == "fade")
+                        {
+                            prog.backgroundTasksList[i].Screen.FadeOut();
+                        }
+                        prog.backgroundTasksList.RemoveAt(i);
+                    }
+                }
+            }
+
+            public static BackgroundTask GetTask(Program prog, string id)
+            {
+                BackgroundTask task = null;
+                foreach (BackgroundTask bg in prog.backgroundTasksList)
+                {
+                    if (bg.Id == id)
+                    {
+                        task = bg;
+                    }
+                }
+                return task;
+            }
+        }        
+
+        public void UpdateLaunchers(bool display = false)
+        {
+            StringBuilder sb = new StringBuilder("");
+            foreach (MissileLauncher launcher in LaunchersList)
+            {
+                IMyShipMergeBlock missileMerge = GetMerge(launcher.LaunchBlock);
+                //launcher.ConnectedMissile = missileMerge;
+
+                if (missileMerge == null)
+                {
+                    if (launcher.Status == MissileLauncher.LauncherStatus.Loaded)
+                    {
+                        launcher.Status = MissileLauncher.LauncherStatus.Fired;
+                    }
+                    else
+                    {
+                        launcher.Status = MissileLauncher.LauncherStatus.Empty;
+                    }
+                    launcher.Missile = null;
+                }
+                else
+                {
+                    Echo("Found a missile " + missileMerge.CustomName);
+                    MissileType missileType = null;
+                    IMyProgrammableBlock missilePB = GetBlock(missileMerge.CustomData, missileMerge) as IMyProgrammableBlock;
+                    if (missilePB != null)
+                    {
+                        Echo("Missile PB Found");
+                        ini.Clear();
+                        MyIniParseResult result;                        
+                        if (!ini.TryParse(missilePB.CustomData, out result))
+                        {
+                            Echo("CANT PARSE");
+                            //throw new Exception(result.ToString());                            
+                        }
+                        else
+                        {
+                            Echo("Can Parse");
+                            if (ini.ContainsSection("Info"))
+                            {
+                                Echo("Info section found");
+                                if (ini.ContainsKey("Info", "Id"))
+                                {
+                                    Echo("Id found");
+                                    string id = ini.Get("Info", "Id").ToString();
+                                    if (id != "")
+                                    {
+                                        Echo("ID NOT BLANK");
+                                        foreach (MissileType mt in missileTypeList)
+                                        {
+                                            if (mt.Id == id)
+                                            {
+                                                Echo("Found missile in list");
+                                                missileType = mt;
+                                                break;
+                                            }
+                                        }
+                                        if (missileType == null)
+                                        {
+                                            Echo("Missile Type not found adding it");
+                                            missileType = new MissileType(this, launcher.LaunchBlock);
+                                            missileTypeList.Add(missileType);
+                                        }
+                                        launcher.Status = MissileLauncher.LauncherStatus.Loaded;
+                                        AttachedMissile attachedMissile = new AttachedMissile(missileType, launcher);
+                                        launcher.Missile = attachedMissile;
+                                    }
+                                    else
+                                    {
+                                        Echo("Error: Missile Id was blank");
+                                    }
+                                }
+                                else
+                                {
+                                    Echo("Error: Missile's Id field is missing");
+                                }
+                            }
+                        }
+                    }
+                    else
+                    {
+                        Echo("Error: Cannot locate Missile's PB using path: " + missileMerge.CustomData);
+                    }                                        
+                }
+                sb.AppendLine(launcher.LaunchBlock.CustomName + ": " + launcher.Status);
+            }
+            if (display)
+            {
+                //FixedText = sb.ToString();
+                //Display();
+            }
+        }
+
+        public MyTuple<IMyShipMergeBlock, IMyProgrammableBlock, bool, bool> CheckLauncher(IMyTerminalBlock launcher)
+        {
+            bool errorFree = true;
+            MyTuple<IMyShipMergeBlock, IMyProgrammableBlock, bool, bool> blocks = new MyTuple<IMyShipMergeBlock, IMyProgrammableBlock, bool, bool>(null, null, false, true);
+            //IMyShipMergeBlock missileMerge = GetRelativeBlock(launcher, new Vector3I(0, 0, -1)) as IMyShipMergeBlock;
+            IMyShipMergeBlock missileMerge = GetMerge(launcher);
+            bool decoy = false;
+            IMyProgrammableBlock pb = null;
+            List<IMyTerminalBlock> pbList = new List<IMyTerminalBlock>();
+            if (missileMerge != null)
+            {
+                if (missileMerge.CustomData != "")
+                {
+                    Echo("Missile Merge not blank. Data\n" + missileMerge.CustomData);
+                    Echo("Attempting to fetch PB block");
+                    pb = GetBlock(missileMerge.CustomData, missileMerge) as IMyProgrammableBlock;
+                    if (pb != null)
+                    {
+                        tempIni.Clear();
+
+                        pbList.Add(pb);
+                        MyIniParseResult result;
+                        if (!tempIni.TryParse(pb.CustomData, "MissileType", out result))
+                        {
+                            cockpit.CustomData += "Invalid PB data\n";
+                            Echo("Invalid data");
+                        }
+                        else
+                        {
+                            if (tempIni.Get("Options", "Decoy").ToString() == "1")
+                            {
+                                decoy = true;
+                            }
+                        }
+                    }
+                    else
+                    {
+                        Echo("Error: PB not found: " + missileMerge.CustomData);
+                        errorFree = false;
+                    }
+                }
+                else
+                {
+                    cockpit.CustomData += "Missile merge is blank\n";
+                    Echo("Missile Merge data was blank");
+                    errorFree = false;
+                }
+            }
+            else
+            {
+                cockpit.CustomData += "Missile merge doesn't exist\n";
+                Echo("Missile merge doesn't exist");
+                errorFree = false;
+            }
+            blocks = new MyTuple<IMyShipMergeBlock, IMyProgrammableBlock, bool, bool>(missileMerge, pb, decoy, errorFree);
+            return blocks;
+        }
+
+        public class DetectedGrid
+        {
+            Program Prog;
+            public string Name { get; set; }
+            public MyDetectedEntityInfo Info { get; set; }
+            public double Distance { get; set; }
+            public double Speed { get; set; }
+            public double Width { get; set; }
+            public double Height { get; set; }
+            public double Depth { get; set; }
+            public Vector3D GPSList { get; set; }
+            public int Attacks { get; set; } = 0;
+
+            public DetectedGrid(Program prog, string name, MyDetectedEntityInfo info, double distance)
+            {
+                Prog = prog;
+                Name = name;
+                Info = info;
+                Distance = distance;
+                Speed = Math.Round(Prog.VecMag(info.Velocity), 2);
+                Width = Math.Round(info.BoundingBox.Size.X, 1);
+                Height = Math.Round(info.BoundingBox.Size.Y, 1);
+                Depth = Math.Round(info.BoundingBox.Size.Z, 1);
+                GPSList = info.Position;
+            }
+
+            public override string ToString()
+            {
+                return "Name: " + Info.Name + "\nType: " + Info.Type + "\nDistance: " + Distance + "\nVelocity: " + Speed + "\nPosition:\nX: " + Math.Round(Info.Position.X, 2) +
+                    "\nY: " + Math.Round(Info.Position.Y, 2) + "\nZ: " + Math.Round(Info.Position.Z, 2) + "\nStatus: " + Info.Relationship.ToString() +
+                    "\nSize: " + Width + ", " + Height + ", " + Depth
+                    + "\nGPS:" + Info.Name + ":" + Math.Round(Info.Position.X, 2) + ":" + Math.Round(Info.Position.Y, 2) + ":" + Math.Round(Info.Position.Z, 2) + ":";
+            }
+
+            public void Update(MyDetectedEntityInfo info, double distance)
+            {
+                this.Info = info;
+                Distance = distance;
+                Speed = Math.Round(Prog.VecMag(info.Velocity), 2);
+                Width = Math.Round(info.BoundingBox.Size.X, 1);
+                Height = Math.Round(info.BoundingBox.Size.Y, 1);
+                Depth = Math.Round(info.BoundingBox.Size.Z, 1);
+            }
+        }
+        public class MissileLauncher
+        {
+            public IMyShipMergeBlock LaunchBlock { get; }            
+            public AttachedMissile Missile { get; set; } = null;            
+            public LauncherStatus Status;
+
+            public enum LauncherStatus
+            {
+                Empty=1,
+                Loaded=2,
+                Fired=3
+            }
+
+            public MissileLauncher(IMyShipMergeBlock launchBlock)
+            {
+                LaunchBlock = launchBlock;
+            }
+
+            public static void Update()
+            {
+
+            }
+        }
+
+        public class MissileType
+        {
+            public IMyProgrammableBlock PB;            
+            public IMyShipMergeBlock MissileMerge;
+            public IMyShipController RC;
+            public string Id;
+            public string Name;            
+            public List<MissileProfile> profilesList = new List<MissileProfile>();
+            public Program Prog;
+
+            public MissileType(Program prog, IMyShipMergeBlock launcherMerge)
+            {
+                Prog = prog;
+                MyTuple<IMyShipMergeBlock, IMyProgrammableBlock, bool, bool> missileBlocks = new MyTuple<IMyShipMergeBlock, IMyProgrammableBlock, bool, bool>(null, null, false, true);                
+                //LaunchControlScreen ls = new LaunchControlScreen;
+                missileBlocks = Prog.CheckLauncher(launcherMerge);
+                if (missileBlocks.Item1 != null && missileBlocks.Item2 != null)
+                {
+                    PB = missileBlocks.Item2;                    
+                    MissileMerge = missileBlocks.Item1;
+                }
+                if (PB != null && MissileMerge != null)
+                {
+                    MyIniParseResult result;
+                    if (!Prog.ini.TryParse(PB.CustomData, out result))
+                    {
+                        Prog.Echo("CANT PARSE");
+                        throw new Exception(result.ToString());
+                    }
+                    else
+                    {
+                        if (Prog.ini.ContainsSection("Info"))
+                        {
+                            if (Prog.ini.ContainsKey("Info", "Name"))
+                            {
+                                if (Prog.ini.Get("Info", "Id").ToString() != "")
+                                {
+                                    Id = Prog.ini.Get("Info", "Id").ToString();
+                                }
+                                else
+                                {
+                                    Id = DateTime.Now.ToString("yyyyMMddHHmmssffff");                                                                        
+                                }
+                                if (Prog.ini.Get("Info", "Name").ToString() != "")
+                                {
+                                    Name = Prog.ini.Get("Info", "Name").ToString();
+                                }
+                                else
+                                {
+                                    Random random = new Random();
+                                    Name = "Missile" + random.Next(1000);
+                                }
+                            }
+                        }
+                        if (Prog.ini.ContainsSection("Blocks"))
+                        {
+                            if (Prog.ini.ContainsKey("Blocks", "RC"))
+                            {
+                                if(Prog.ini.Get("Blocks", "RC").ToString() != "")
+                                {
+                                    prog.Echo("Fetching RC block");
+                                    RC = Prog.GetBlock(Prog.ini.Get("Blocks", "RC").ToString(), PB) as IMyShipController;
+                                }                                
+                            }                                
+                        }                        
+                        if (Prog.ini.ContainsSection("Default Profile"))
+                        {
+                            profilesList.Add(new MissileProfile("Default", "Default"));                                
+                        }                        
+                        string profileName = "";
+                        for (int i=0; i<=10; i++)
+                        {                            
+                            if (Prog.ini.ContainsSection("Profile " + i))
+                            {                                                                
+                                if (Prog.ini.ContainsKey("Profile " + i, "Name"))
+                                {
+                                    if (Prog.ini.Get("Profile " + i, "Name").ToString() != "")
+                                    {
+                                        profileName = Prog.ini.Get("Profile " + i, "Name").ToString();
+                                    }
+                                    else
+                                    {
+                                        profileName = "Profile " + i;
+                                    }
+                                }
+                                profilesList.Add(new MissileProfile("Profile " + i, profileName));
+                            }
+                        }                                                
+                    }
+                }                    
+            }
+        }
+
+        public class MissileProfile
+        {
+            public string Id { get; set; }
+            public string Name { get; set; }
+
+            public MissileProfile(string id, string name)
+            {
+                Id = id;
+                Name = name;
+            }
+        }
+
+        public class AttachedMissile
+        {
+            public MissileType MissileType;
+            public MissileLauncher Launcher;            
+            public MissileProfile MissileProfile;
+            public DetectedGrid Target { get; set; } = null;
+
+            public AttachedMissile(MissileType missileType, MissileLauncher launcher)
+            {
+                MissileType = missileType;
+                Launcher = launcher;                
+                foreach(MissileProfile mp in missileType.profilesList)
+                {
+                    if (mp.Id == "Default")
+                    {
+                        MissileProfile = mp;
+                        break;
+                    }
+                }                
+            }
+        }        
+
+        public class KV
+        {
+            public string Key;
+            public string Value;
+
+            public KV(string key, string value)
+            {
+                Key = key;
+                Value = value;
+            }
+        }        
+
+        public class Sound
+        {
+            public string Id { get; }
+            public string SelectedSound { get; set; }
+            public float LoopPeriod { get; set; }
+            public float Volume { get; set; }
+            public float Range { get; set; }
+
+            private Sound(string id, string selectedSound, float loopPeriod, float volume, float range)
+            {
+                Id = id;
+                SelectedSound = selectedSound;
+                LoopPeriod = loopPeriod;
+                Volume = volume;
+                Range = range;
+            }
+
+            public static void AddSound(Program prog, string id, string selectedSound, float loopPeriod, float volume, float range)
+            {
+                string[] soundsList = { "" };
+                bool found = false;
+                foreach (string s in soundsList)
+                {
+                    if (s == selectedSound)
+                    {
+                        found = true;
+                        break;
+                    }
+                }
+                if (found)
+                {
+                    Sound sound = GetSound(prog, id);
+                    if (sound == null)
+                    {
+                        prog.soundsList.Add(new Sound(id, selectedSound, loopPeriod, volume, range));
+                    }
+                    else
+                    {
+                        prog.Echo("Error: Sound already exists: " + id);
+                    }
+                }
+                else
+                {
+                    prog.Echo("Error: No such sound: " + selectedSound);
+                }
+            }
+
+            public static void PlaySound(Program prog, string id)
+            {
+                Sound sound = GetSound(prog, id);
+                if (sound != null)
+                {
+                    foreach (IMySoundBlock sb in prog.soundBlockList)
+                    {
+                        sb.SelectedSound = sound.SelectedSound;
+                        sb.Range = sound.Range;
+                        sb.Volume = sound.Volume;
+                        sb.LoopPeriod = sound.LoopPeriod;
+                        sb.Enabled = true;
+                    }
+                }
+                else
+                {
+                    prog.Echo("Error: Sound not found: " + id);
+                }
+            }
+
+            public static void StopSound(Program prog)
+            {
+                foreach (IMySoundBlock sb in prog.soundBlockList)
+                {
+                    sb.Enabled = false;
+                }
+            }
+
+            public static Sound GetSound(Program prog, string id)
+            {
+                Sound sound = null;
+                foreach (Sound s in prog.soundsList)
+                {
+                    if (s.Id == id)
+                    {
+                        sound = s;
+                        break;
+                    }
+                }
+                return sound;
+            }
+        }
+    }
+}
