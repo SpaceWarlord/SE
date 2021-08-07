@@ -1,0 +1,1798 @@
+using Sandbox.Game.EntityComponents;
+using Sandbox.ModAPI.Ingame;
+using Sandbox.ModAPI.Interfaces;
+using SpaceEngineers.Game.ModAPI.Ingame;
+using System;
+using System.Collections;
+using System.Collections.Generic;
+using System.Collections.Immutable;
+using System.Linq;
+using System.Text;
+using VRage;
+using VRage.Collections;
+using VRage.Game;
+using VRage.Game.Components;
+using VRage.Game.GUI.TextPanel;
+using VRage.Game.ModAPI.Ingame;
+using VRage.Game.ModAPI.Ingame.Utilities;
+using VRage.Game.ObjectBuilders.Definitions;
+using VRageMath;
+
+namespace IngameScript
+{
+    partial class Program
+    {
+        public abstract class Screen
+        {
+            protected Program Prog { get; }
+            public string Id { get; }
+            public Screen ParentScreen { get; } = null;
+            protected string Title { get; set; }
+            protected string FixedText { get; set; }
+            protected string DynamicText { get; set; } = "";
+            protected string ButtonText { get; set; }
+            protected string StatusText { get; set; }
+            protected Color BackgroundColor { get; set; }
+            protected Color FontColor { get; set; }
+            protected float FontSize { get; set; }
+            protected bool AllowClear { get; set; } = true;
+            protected int CurrentPage { get; set; } = 1;
+            protected int ItemsPerPage { get; set; } = 5;
+            protected string Font = "Monospace";
+            protected List<SubScreen> SubScreenList { get; set; } = new List<SubScreen>();
+            protected SubScreen CurrentSubScreen { get; set; } = null;
+            protected int CursorVerticalPosition { get; set; } = 0;
+            public List<MenuItem> MenuItemsList = new List<MenuItem>();
+            public Screen(Program prog, string id, Screen parentScreen, string title, string fixedText, string dynamicText, string buttonText, string statusText,
+                Color backgroundColor, Color fontColor, float fontSize, bool allowClear = true)
+            {
+                Prog = prog;
+                Id = id;
+                ParentScreen = parentScreen;
+                Title = title;
+                FixedText = fixedText;
+                DynamicText = dynamicText;
+                ButtonText = buttonText;
+                StatusText = statusText;
+                BackgroundColor = backgroundColor;
+                FontColor = fontColor;
+                FontSize = fontSize;
+                AllowClear = allowClear;
+            }
+            public void BtnPressHandler(string btnNumber)
+            {
+                BtnPress(btnNumber);
+                switch (btnNumber)
+                {
+                    case "a":
+                        Btn1();
+                        break;
+                    case "b":
+                        Btn2();
+                        break;
+                    case "c":
+                        Btn3();
+                        break;
+                    case "d":
+                        Btn4();
+                        break;
+                    case "e":
+                        Btn5();
+                        break;
+                    case "f":
+                        Btn6();
+                        break;
+                    case "g":
+                        Btn7();
+                        break;
+                    case "h":
+                        Btn8();
+                        break;
+                    case "i":
+                        Btn9();
+                        break;
+                }
+            }
+
+            public virtual void TaskStart(BackgroundTask task) { }
+            public virtual void TaskRunning(BackgroundTask task) { }
+            public virtual void TaskEnd(BackgroundTask task) { }
+
+            public virtual void TaskAborted(BackgroundTask task) { }
+
+            public static void GlobalTaskStart(Program prog, BackgroundTask task)
+            {
+                if (task.Id == "")
+                {
+
+                }
+            }
+
+            public static void GlobalTaskRunning(Program prog, BackgroundTask task)
+            {
+                if (task.Id == "updateLaunchers")
+                {
+                    prog.UpdateLaunchers();
+                }
+            }
+
+            public static void GlobalTaskEnd(Program prog, BackgroundTask task)
+            {
+
+            }
+
+            public static void GlobalTaskAborted(Program prog, BackgroundTask task)
+            {
+
+            }
+
+            public void OutputToDisplay(string header, string content)
+            {
+
+            }
+            public void DisplayMenu()
+            {
+                FixedText = "";
+                Prog.Echo("DisplayMenu called " + CursorVerticalPosition);
+                Prog.Echo("zPage: " + CurrentPage);
+                if (MenuItemsList != null)
+                {
+                    Prog.Echo("MENU COUNT " + MenuItemsList.Count);
+                    if (MenuItemsList.Count > 0)
+                    {
+                        if (CursorVerticalPosition < MenuItemsList.Count)
+                        {
+                            Prog.Echo("not a null");
+                            Prog.Echo("Menu Item Count: " + MenuItemsList.Count);
+                            int index = (CurrentPage * ItemsPerPage) - ItemsPerPage;
+                            int max = index + ItemsPerPage - 1;
+                            int maxPage = MenuItemsList.Count / ItemsPerPage;
+                            if ((MenuItemsList.Count % ItemsPerPage) > 0)
+                            {
+                                maxPage += 1;
+                            }
+                            if (max >= MenuItemsList.Count)
+                            {
+                                max = MenuItemsList.Count - 1;
+                            }
+                            Prog.Echo("Items per page: " + ItemsPerPage);
+                            Prog.Echo("current page: " + CurrentPage);
+                            Prog.Echo("Max is: " + max);
+                            Prog.Echo("Index: " + index);
+                            for (int i = index; i <= max; i++)
+                            {
+                                Prog.Echo("I is " + i + " - " + MenuItemsList[i].Name);
+                                Prog.Echo("zzzVal is '" + MenuItemsList[i].Value + "'");
+                                if (CursorVerticalPosition == i)
+                                {
+                                    Prog.Echo("Cursor at: " + MenuItemsList[i].Name);
+                                    FixedText += "> " + MenuItemsList[i].Name;
+                                    if (!string.IsNullOrEmpty(MenuItemsList[i].DisplayText))
+                                    {
+                                        FixedText += ": <<" + MenuItemsList[i].DisplayText + ">>";
+                                    }
+                                }
+                                else
+                                {
+                                    FixedText += "  " + MenuItemsList[i].Name;
+                                    if (!string.IsNullOrEmpty(MenuItemsList[i].Value))
+                                    {
+                                        FixedText += ": " + MenuItemsList[i].DisplayText + "";
+                                    }
+                                }
+                                FixedText += "\n";
+                                foreach(ManagedDisplay md in Prog.ManagedDisplaysList)
+                                {
+                                    md.DisplayMenu(MenuItemsList);
+                                }
+                            }
+                        }
+                        else
+                        {
+                            Prog.Echo("Error: Vertical Cursor was invalid - " + CursorVerticalPosition);
+                        }
+                    }
+                    else
+                    {
+                        Prog.Echo("Menu items was empty: " + CursorVerticalPosition);
+                    }
+                }
+                else
+                {
+                    Prog.Echo("Menu items was null");
+                }
+                Prog.Echo(FixedText);
+            }
+            public void Display()
+            {
+                Prog.Echo("Display called");
+                /*                
+                if (Prog.lcdList.Count == 0)
+                {
+                    Prog.Echo("Error: No screens available");
+                }
+                else
+                {
+                    foreach (IMyTextSurface textSurface in Prog.lcdList)
+                    {
+                        textSurface.BackgroundColor = BackgroundColor;
+                        textSurface.FontColor = FontColor;
+                        textSurface.FontSize = FontSize;
+                    }
+                }
+                string dText = "";
+                string title = Title;
+                string text = FixedText;
+                string status = StatusText;
+                if (DynamicText != "")
+                {
+                    Prog.Echo("NOT A LBANK");
+                    dText = DynamicText + "\n\n";
+                }
+                if (CurrentSubScreen != null)
+                {
+                    title = CurrentSubScreen.Title;
+                    text = CurrentSubScreen.Text;
+                    status = CurrentSubScreen.Status;
+                }
+                int maxPage = MenuItemsList.Count / ItemsPerPage;
+                if ((MenuItemsList.Count % ItemsPerPage) > 0)
+                {
+                    maxPage += 1;
+                }
+                string pageText = "";
+                if (maxPage > 1)
+                {
+                    pageText = "( " + CurrentPage + " / " + maxPage + " )";
+                }
+
+                Prog.WriteToLCD("-- " + title + pageText + " --\n\n" + Prog.DisplayBackgroundTasks() + "\n\n" + text + "\n\n" + dText + status + "\n\n" + ButtonText, FontSize);
+                */
+            }
+
+            public void ChangeScreen(string screenId, bool displayDefault = false)
+            {
+                if (!string.IsNullOrEmpty(screenId))
+                {
+                    Screen screen = GetScreen(Prog, screenId);
+                    if (screen != null)
+                    {
+                        ChangeScreen(screen, displayDefault);
+                    }
+                    else
+                    {
+                        Prog.Echo("Error: Invalid screen id - " + screenId);
+                    }
+                }
+                else
+                {
+                    Prog.Echo("Error: Screen ID was blank");
+                }
+            }
+            public void ChangeScreen(Screen screen, bool displayDefault = false)
+            {
+                ChangeScreen(screen, screen.BackgroundColor, screen.FontColor, screen.FontSize, displayDefault);
+            }
+            public void ChangeScreen(Screen screen, Color backgroundColor, Color fontColor, float fontSize, bool displayDefault = false)
+            {
+                Prog.Echo("CHANGE SCREEN CALLED " + screen.Id + "\n");
+                if (screen != null)
+                {
+                    CursorVerticalPosition = 0;
+                    Prog.previousScreen = Prog.currentScreen;
+                    Prog.currentScreen = screen;
+                    Prog.currentScreen.CursorVerticalPosition = 0;
+                    if (displayDefault)
+                    {
+                        Prog.currentScreen.FixedText = "";
+                        Prog.currentScreen.DefaultDisplay();
+                    }
+                    else if (Prog.currentScreen.FixedText == "")
+                    {
+                        Prog.Echo("Screen was blank displaying default");
+                        Prog.currentScreen.DefaultDisplay();
+                    }
+                    else
+                    {
+                        Prog.Echo(Prog.currentScreen.Id + " Fixed text:\n" + Prog.currentScreen.FixedText);
+                    }
+                    if (backgroundColor == null)
+                    {
+                        backgroundColor = Color.Black;
+                    }
+                    if (fontColor == null)
+                    {
+                        fontColor = Color.White;
+                    }
+                    foreach (IMyTextSurface textSurface in Prog.lcdList)
+                    {
+                        textSurface.BackgroundColor = backgroundColor;
+                        textSurface.FontColor = fontColor;
+                    }
+                    //currentScreen.Display();
+                }
+                else
+                {
+                    Prog.Echo("Unable to change screen. Screen was null");
+                }
+            }
+
+            public void ChangeSubScreen(string id)
+            {
+                if (SubScreenList.Count > 0)
+                {
+                    bool found = false;
+                    foreach (SubScreen subScreen in SubScreenList)
+                    {
+                        if (subScreen.Id == id)
+                        {
+                            CurrentSubScreen = subScreen;
+                            found = true;
+                        }
+                    }
+                    if (!found)
+                    {
+                        Prog.Echo("Error: Invalid subscreen: " + id);
+                    }
+                }
+                else
+                {
+                    Prog.Echo("Error: No subscreens available");
+                }
+            }
+
+            public SubScreen GetSubScreen(int index)
+            {
+                SubScreen subScreen = null;
+                if (SubScreenList != null)
+                {
+                    if (SubScreenList.Count - 1 < index)
+                    {
+                        subScreen = SubScreenList.ElementAt(index);
+                    }
+                }
+                return subScreen;
+            }
+
+            public SubScreen GetSubScreen(string id)
+            {
+                SubScreen subScreen = null;
+                if (SubScreenList != null)
+                {
+                    bool found = false;
+                    foreach (SubScreen sub in SubScreenList)
+                    {
+                        if (sub.Id == id)
+                        {
+                            subScreen = sub;
+                            found = true;
+                        }
+                    }
+                    if (!found)
+                    {
+                        Prog.Echo("Error: Invalid subscreen id: " + id);
+                    }
+                }
+                return subScreen;
+            }
+
+            public string GetVerticalCursorId()
+            {
+                string id = "";
+                if (MenuItemsList != null)
+                {
+                    if (MenuItemsList.Count > 0)
+                    {
+                        if (MenuItemsList.ElementAt(CursorVerticalPosition) != null)
+                        {
+                            id = MenuItemsList.ElementAt(CursorVerticalPosition).Id;
+                        }
+                    }
+                }
+                return id;
+            }
+
+            public virtual void PreChangeVerticalCursor(string direction) { }
+            public virtual void PostChangeVerticalCursor(string direction) { }
+            public void ChangeVerticalCursor(string direction, int startingItem)
+            {
+                PreChangeVerticalCursor(direction);
+                FixedText = "";
+                Prog.Echo("called change vertical");
+                if (direction == "up")
+                {
+                    if (CursorVerticalPosition != 0)
+                    {
+                        CursorVerticalPosition--;
+                    }
+                    else
+                    {
+                        CursorVerticalPosition = MenuItemsList.Count - 1;
+                    }
+                }
+                else
+                {
+                    if (CursorVerticalPosition != MenuItemsList.Count() - 1)
+                    {
+                        Prog.Echo("CURSOR INCREASE");
+                        CursorVerticalPosition++;
+                    }
+                    else
+                    {
+                        CursorVerticalPosition = 0;
+                    }
+                }
+                int currentMax = (CurrentPage * ItemsPerPage) - 1;
+                int currentMin = (CurrentPage * ItemsPerPage) - ItemsPerPage;
+                Prog.Echo("CMax: " + currentMax + "\nCMin: " + currentMin + "\nCursor: " + CursorVerticalPosition);
+                if (CursorVerticalPosition > currentMax)
+                {
+                    CurrentPage++;
+                }
+                else if (CursorVerticalPosition < currentMin)
+                {
+                    CurrentPage--;
+                }
+                PostChangeVerticalCursor(direction);
+                DisplayMenu();
+                Prog.Echo(FixedText);
+            }
+            public void ChangeHorizontalCursor(string direction)
+            {
+                FixedText = "";
+                MenuItem menuItem = MenuItemsList.ElementAt(CursorVerticalPosition);
+                if (menuItem != null)
+                {
+                    if (menuItem.ItemType == "list")
+                    {
+                        if (menuItem.PredefinedValues != null)
+                        {
+                            if (menuItem.PredefinedValues.Count > 0)
+                            {
+                                if (direction == "left")
+                                {
+                                    if (menuItem.CurrentIndex == 0)
+                                    {
+                                        menuItem.CurrentIndex = menuItem.PredefinedValues.Count - 1;
+                                    }
+                                    else
+                                    {
+                                        menuItem.CurrentIndex--;
+                                    }
+                                }
+                                else
+                                {
+                                    if (menuItem.CurrentIndex == menuItem.PredefinedValues.Count - 1)
+                                    {
+                                        menuItem.CurrentIndex = 0;
+                                    }
+                                    else
+                                    {
+                                        menuItem.CurrentIndex++;
+                                    }
+                                }
+                                if (menuItem.PredefinedValues.ElementAt(menuItem.CurrentIndex) != null)
+                                {
+                                    menuItem.Value = menuItem.PredefinedValues.ElementAt(menuItem.CurrentIndex).Value;
+                                    menuItem.DisplayText = menuItem.PredefinedValues.ElementAt(menuItem.CurrentIndex).Key;
+                                    Prog.Echo("KK is " + menuItem.CurrentIndex + " KEY IS " + menuItem.PredefinedValues.ElementAt(menuItem.CurrentIndex).Key);
+                                }
+                            }
+                        }
+                    }
+                    else if (menuItem.ItemType == "range")
+                    {
+                        if (direction == "left")
+                        {
+                            menuItem.Value = (double.Parse(menuItem.Value) - menuItem.Increment).ToString();
+                            if (double.Parse(menuItem.Value) < menuItem.MinValue)
+                            {
+                                menuItem.Value = menuItem.MaxValue.ToString();
+                            }
+                            menuItem.DisplayText = menuItem.Value;
+                        }
+                        else
+                        {
+                            menuItem.Value = (double.Parse(menuItem.Value) + menuItem.Increment).ToString();
+                            if (double.Parse(menuItem.Value) > menuItem.MaxValue)
+                            {
+                                menuItem.Value = menuItem.MinValue.ToString();
+                            }
+                            menuItem.DisplayText = menuItem.Value;
+                        }
+                    }
+                    MenuItemsList.ElementAt(CursorVerticalPosition).CurrentIndex = menuItem.CurrentIndex;
+                    MenuItemsList.ElementAt(CursorVerticalPosition).Value = menuItem.Value;
+                    MenuItemsList.ElementAt(CursorVerticalPosition).DisplayText = menuItem.DisplayText;
+                    HorizontalCursorChanged(MenuItemsList.ElementAt(CursorVerticalPosition));
+                    DisplayMenu();
+                }
+            }
+
+            public virtual void HorizontalCursorChanged(MenuItem menuItem) { }
+
+            public virtual void Enter()
+            {
+                if (MenuItemsList.Count > 0)
+                {
+                    if (MenuItemsList.ElementAt(CursorVerticalPosition) != null)
+                    {
+                        if (MenuItemsList.ElementAt(CursorVerticalPosition).ScreenId != "")
+                        {
+                            Prog.Echo("Screen set to change to " + MenuItemsList.ElementAt(CursorVerticalPosition).ScreenId);
+                            ChangeScreen(MenuItemsList.ElementAt(CursorVerticalPosition).ScreenId);
+                        }
+                        else
+                        {
+                            Prog.Echo("Screen Id not set");
+                        }
+                    }
+                    else
+                    {
+                        Prog.Echo("Invalid cursor position: " + CursorVerticalPosition);
+                    }
+                }
+            }
+
+            public MenuItem GetMenuItem(string id)
+            {
+                MenuItem menuItem = null;
+                foreach (MenuItem item in MenuItemsList)
+                {
+                    if (item.Id == id)
+                    {
+                        menuItem = item;
+                        break;
+                    }
+                }
+                if (menuItem == null)
+                {
+                    Prog.Echo("Error: Menu Item was not found with id: " + id);
+                }
+                return menuItem;
+            }
+
+            public static Screen GetScreen(Program prog, string screenId)
+            {
+                foreach (Screen screen in prog.screensList)
+                {
+                    if (screen.Id == screenId)
+                    {
+                        return screen;
+                    }
+                }
+                prog.Echo("Error: Screen not found with id: " + screenId);
+                return null;
+            }
+
+            public abstract void Delete();
+
+            public void ChangePage(string direction)
+            {
+                Prog.Echo("CHANGE PAGE CALLED: " + direction);
+                if (direction == "up")
+                {
+                    if (CurrentPage != 1)
+                    {
+                        CurrentPage--;
+                        CursorVerticalPosition -= ItemsPerPage;
+                        if (CursorVerticalPosition < 0)
+                        {
+                            CursorVerticalPosition = 0;
+                        }
+                        /*
+                        int prevPage = CurrentPage -= 1;
+                        int startingItem = ItemsPerPage * (prevPage-1);
+                        int endingItem = ItemsPerPage * prevPage;
+                        DisplayScreenMenu(0, startingItem, endingItem);
+                        */
+            }
+                    else
+                    {
+                        CurrentPage = (int)Math.Ceiling((decimal)MenuItemsList.Count / (decimal)ItemsPerPage);
+                    }
+                }
+                else
+                {
+                    //int maxPage = MenuItemsList.Count / ItemsPerPage;
+                    int maxPage = (int)Math.Ceiling((decimal)MenuItemsList.Count / (decimal)ItemsPerPage);
+                    if (CurrentPage != maxPage)
+                    {
+                        CurrentPage++;
+                        CursorVerticalPosition += ItemsPerPage;
+                        if (CursorVerticalPosition > MenuItemsList.Count - 1)
+                        {
+                            CursorVerticalPosition = (MenuItemsList.Count - 1);
+                        }
+                    }
+                    else
+                    {
+                        CurrentPage = 1;
+                    }
+                }
+                DisplayMenu();
+            }            
+
+            public virtual void Fade(string text, double time = 2000)
+            {
+                FadeIn(text, time);
+            }
+            public void FadeIn(string text, double time = 1500)
+            {
+                DynamicText = text;
+                BackgroundTask.AddBackgroundTask(Prog, "fade", "Fade Out", "", time, 0, this, true, false, false, true, 1, false);
+            }
+            public void FadeOut()
+            {
+                DynamicText = "";
+                Display();
+            }
+            public abstract void DefaultDisplay();
+
+            public virtual void BtnPress(string btn) { }
+            public virtual void Btn1()
+            {
+                Enter();
+            }
+            public virtual void Btn2()
+            {
+                ChangeVerticalCursor("up", 0);
+            }
+            public virtual void Btn3()
+            {
+                ChangeVerticalCursor("down", 0);
+            }
+            public virtual void Btn4()
+            {
+                ChangeHorizontalCursor("left");
+            }
+            public virtual void Btn5()
+            {
+                ChangeHorizontalCursor("right");
+            }
+            public virtual void Btn6() //page up
+            {
+                ChangePage("up");
+            }
+            public virtual void Btn7() //page down
+            {
+                ChangePage("down");
+            }
+            public virtual void Btn8() //go up one level
+            {
+                if (CurrentSubScreen == null)
+                {
+                    Prog.Echo("sub screen is null");
+                    if (ParentScreen != null)
+                    {
+                        ParentScreen.CursorVerticalPosition = 0;
+                        ChangeScreen(ParentScreen, true);
+                    }
+                }
+                else
+                {
+                    Prog.Echo("sub screen NOT null");
+                    CursorVerticalPosition = 0;
+                    ChangeScreen(this, true);
+                    CurrentSubScreen = null;
+                }
+            }
+            public virtual void Btn9()
+            {
+                Delete();
+            }
+        }
+
+        public class MenuScreen : Screen
+        {
+            public MenuScreen(Program prog, string id, Screen parentScreen, string title, string fixedText, string dynamicText, string buttonText, string statusText, Color backgroundColor, Color fontColor, float fontSize)
+                : base(prog, id, parentScreen, title, fixedText, dynamicText, buttonText, statusText, backgroundColor, fontColor, fontSize)
+            {
+                MenuItemsList = new List<MenuItem>
+                {
+                    new MenuItem("scan", "Scanner", "","scan", typeof(string), "AH_PullUp", (float)(1.5f * Math.PI), Color.White, Color.Red),
+                    new MenuItem("targets", "Targets", "","targets", typeof(string)),
+                    new MenuItem("targetSelection", "Target Selection", "","targetSelection", typeof(string)),
+                    new MenuItem("profileSelection", "Profile Selection", "", "profileSelection", typeof(string)),
+                    new MenuItem("sequence", "Launch Sequence", "","sequence", typeof(string)),
+                    new MenuItem("launchControl", "Launch Control", "","launchControl", typeof(string)),
+                    new MenuItem("settings", "Settings", "","settings", typeof(string)),
+                    new MenuItem("preparation", "Missile Preparation", "","preparation", typeof(string)),
+                    new MenuItem("rearm", "Rearm", "","scan", typeof(string)),
+                    new MenuItem("lock", "Safety Lock", "","scan", typeof(string)),
+                    new MenuItem("a", "A", "","", typeof(string)),
+                    new MenuItem("b", "B", "","", typeof(string)),
+                    new MenuItem("c", "C", "","", typeof(string)),
+                    new MenuItem("d", "D", "","", typeof(string)),
+                    new MenuItem("e", "E", "","", typeof(string)),
+                };
+            }
+            public override void DefaultDisplay()
+            {
+                DisplayMenu();
+                //Display();
+                StatusText = "Idle";
+            }
+            public override void Delete() { }
+        }
+
+        public class ScanScreen : Screen
+        {
+            public double MaxScanRange { get; set; } = 0;
+            public int ScanNum = 1;
+            public List<IMyCameraBlock> CamerasList = new List<IMyCameraBlock>();
+
+            public ScanScreen(Program prog, string id, Screen parentScreen, string title, string fixedText, string dynamicText, string buttonText, string statusText, Color backgroundColor,
+                Color fontColor, float fontSize, double maxScanRange)
+                : base(prog, id, parentScreen, title, fixedText, dynamicText, buttonText, statusText, backgroundColor, fontColor, fontSize)
+            {
+                MaxScanRange = maxScanRange;
+                Prog.GridTerminalSystem.GetBlocksOfType<IMyCameraBlock>(CamerasList);
+                MenuItemsList = new List<MenuItem>()
+                {
+                    new MenuItem("scan", "Scan","","",typeof(string)),
+                    new MenuItem("mode", "Mode", new List<KV>() {
+                        new KV("Auto Scan", "1"),
+                        new KV("Precision" , "2")
+                    }),
+                    new MenuItem("friendlies", "Friendlies",new List<KV>() {
+                        new KV("Ignore", "true"),
+                        new KV("Scan" , "false")
+                    }),
+                    new MenuItem("scanRange", "Scan Range", 500, 1000, maxScanRange, maxScanRange, typeof(double)),
+                    new MenuItem("targets", "Targets","","targets",typeof(string)),
+                };
+                SubScreenList.Add(new SubScreen("scan", "Scanning", "", "", Color.Black, "Monospace", Color.White, 0.6f));
+            }
+            public override void DefaultDisplay()
+            {
+                Title = "Scanner";
+                DisplayMenu();
+            }
+            public override void Enter()
+            {
+                string currentSelection = GetVerticalCursorId();
+                Prog.Echo("Current Selection: " + currentSelection);
+                switch (currentSelection)
+                {
+                    case "scan":
+                        Prog.Echo("Case is Scan");
+                        if (GetMenuItem("mode") != null)
+                        {
+                            string scanMode = GetMenuItem("mode").Value;
+                            MaxScanRange = double.Parse(GetMenuItem("scanRange").Value);
+                            Prog.Echo("Scan range: " + MaxScanRange);
+                            ChangeSubScreen("scan");
+                            if (scanMode == "1")
+                            {
+                                //auto scan
+                                CurrentSubScreen.Title = "Center Scan";
+                                CurrentSubScreen.Text = Scan("center");
+                            }
+                            else
+                            {
+                                CurrentSubScreen.Title = "Precision Scan";
+                                CurrentSubScreen.Text = Scan("precision");
+                            }
+                        }
+                        else
+                        {
+                            Prog.Echo("Error: Mode was null");
+                        }
+                        break;
+                    case "mode":
+                        break;
+                    case "friendlies":
+                        break;
+                    case "targets":
+                        ChangeScreen("targets");
+                        break;
+                    default:
+                        Prog.Echo("Invalid Selection");
+                        break;
+                }
+            }
+            public string Scan(string scanMode = "center")
+            {
+                string scanText = "";
+                if (GetMenuItem("friendlies") != null)
+                {
+                    Prog.Echo("bool val is " + GetMenuItem("friendlies").GetSelectedPredefined());
+                    bool ignoreFriendlies = bool.Parse(GetMenuItem("friendlies").Value);
+                    bool showAllTargetData = true;
+                    foreach (IMyCameraBlock cam in CamerasList)
+                    {
+                        if (cam != null)
+                        {
+                            if (!cam.EnableRaycast)
+                            {
+                                cam.EnableRaycast = true;
+                            }
+
+                            MyDetectedEntityInfo scanData = new MyDetectedEntityInfo();
+                            if (!cam.CanScan(MaxScanRange))
+                            {
+                                scanText += "Can't scan yet.\n\nCharge: " + cam.AvailableScanRange.ToString() + " / " + MaxScanRange.ToString();
+                            }
+                            else
+                            {
+                                scanData = cam.Raycast(MaxScanRange, 0, 0);
+                                if (scanData.IsEmpty())
+                                {
+                                    scanText += "Nothing Found";
+                                }
+                                else
+                                {
+                                    if (!scanData.Relationship.IsFriendly() || (ignoreFriendlies && scanData.Relationship.IsFriendly()))
+                                    {
+                                        string gridName = "";
+                                        double targetDistance = Math.Round(VecToRange(scanData.Position, cam.GetPosition()));
+                                        if (scanMode == "precision")
+                                        {
+                                            targetDistance = Math.Round(VecToRange(scanData.HitPosition.Value, cam.GetPosition()));
+                                        }
+                                        double targetSpeed = Math.Round(VecMag(scanData.Velocity), 2);
+                                        scanText = "Detected\n";
+                                        if (scanData.Relationship.IsFriendly())
+                                        {
+                                            gridName = ScanNum + ". " + scanData.Name;
+                                            scanText += scanData.Name + "\nDistance: " + targetDistance + "\nSpeed " + targetSpeed;
+                                        }
+                                        else
+                                        {
+                                            gridName += ScanNum + ". ";
+                                            if (scanData.Name == "Large Grid")
+                                            {
+                                                gridName += "Large";
+                                            }
+                                            else
+                                            {
+                                                gridName += "Small";
+                                            }
+                                            double average = Math.Round((scanData.BoundingBox.Size.X + scanData.BoundingBox.Size.Y + scanData.BoundingBox.Size.Z / 3), 1);
+                                            gridName += " - " + average;
+                                            scanText += "Distance: " + targetDistance + "\nSpeed " + targetSpeed;
+                                        }
+                                        if (showAllTargetData)
+                                        {
+                                            string gpsTarget = "GPS:Target: " + Math.Round(scanData.Position.X, 2) + ":" + Math.Round(scanData.Position.Y, 2) + ":" + Math.Round(scanData.Position.Z, 2) + ":";
+                                            if (scanMode == "precision")
+                                            {
+                                                gpsTarget = "GPS:Target: " + Math.Round(scanData.HitPosition.Value.X, 2) + ":" + Math.Round(scanData.HitPosition.Value.Y, 2) + ":" + Math.Round(scanData.HitPosition.Value.Z, 2) + ":";
+                                            }
+                                            scanText += "\nGrid Type: " + scanData.Type + "\nSIZE X: " + Math.Round(scanData.BoundingBox.Size.X, 1) + " Y:" + Math.Round(scanData.BoundingBox.Size.Y, 1)
+                                                + " Z:" + Math.Round(scanData.BoundingBox.Size.Z, 1)
+                                                 + "\n\n" + gpsTarget;
+                                        }
+                                        bool existsAlready = false;
+                                        TargetsScreen targetsScreen = GetScreen(Prog, "targets") as TargetsScreen;
+                                        if (targetsScreen != null)
+                                        {
+                                            for (int i = 0; i < targetsScreen.DetectedGridsList.Count; i++)
+                                            {
+                                                if (targetsScreen.DetectedGridsList[i].Info.EntityId == scanData.EntityId)
+                                                {
+                                                    existsAlready = true;
+                                                    targetsScreen.DetectedGridsList[i].Update(scanData, targetDistance);
+                                                    break;
+                                                }
+                                            }
+                                            if (!existsAlready)
+                                            {
+                                                DetectedGrid newDetection = new DetectedGrid(Prog, gridName, scanData, targetDistance);
+                                                targetsScreen.DetectedGridsList.Add(newDetection);
+                                                MenuScreen menuScreen = GetScreen(Prog, "menu") as MenuScreen;
+                                                if (menuScreen == null)
+                                                {
+                                                    Prog.Echo("YYAAAAAA");
+                                                }
+                                                ScanScreen scanScreen = GetScreen(Prog, "scan") as ScanScreen;
+                                                MenuItem mi1 = menuScreen.GetMenuItem("targets");
+                                                Prog.Echo("ZNAME " + mi1.Name);
+                                                mi1.Name = "Targets (" + targetsScreen.DetectedGridsList.Count + ")";
+                                                MenuItem mi2 = scanScreen.GetMenuItem("targets");
+                                                mi2.Name = "Targets (" + targetsScreen.DetectedGridsList.Count + ")";
+                                                scanScreen.DefaultDisplay();
+                                                menuScreen.DefaultDisplay();
+                                                ScanNum++;
+                                            }
+                                            string gps = "" + Math.Round(scanData.Position.X, 2) + "," + Math.Round(scanData.Position.Y, 2) + "," + Math.Round(scanData.Position.Z, 2);
+                                        }
+                                    }
+                                    else
+                                    {
+                                        Prog.Echo("Target is friendly");
+                                        scanText += "Target is friendly";
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                else
+                {
+                    Prog.Echo("Error: Friendlies setting not found");
+                }
+                return scanText;
+            }
+            public override void Delete() { }
+            public double VecToRange(Vector3D tar, Vector3D org)
+            {
+                return Math.Sqrt(Math.Pow(tar.X - org.X, 2) + Math.Pow(tar.Y - org.Y, 2) + Math.Pow(tar.Z - org.Z, 2));
+            }
+            public double VecMag(Vector3D vec)
+            {
+                return Math.Sqrt(Math.Pow(vec.X, 2) + Math.Pow(vec.Y, 2) + Math.Pow(vec.Z, 2));
+            }
+        }
+
+        public class TargetsScreen : Screen
+        {
+            public List<DetectedGrid> DetectedGridsList = new List<DetectedGrid>();
+            public TargetsScreen(Program prog, string id, Screen parentScreen, string title, string fixedText, string dynamicText, string buttonText, string statusText, Color backgroundColor, Color fontColor, float fontSize)
+                : base(prog, id, parentScreen, title, fixedText, dynamicText, buttonText, statusText, backgroundColor, fontColor, fontSize)
+            {
+                SubScreenList.Add(new SubScreen("targetInfo", "", "", "", Color.Black, "Monospace", Color.White, 0.6f));
+            }
+
+            public override void DefaultDisplay()
+            {
+                Prog.Echo("GAHGAGHAH");
+                MenuItemsList.Clear();
+                foreach (DetectedGrid grid in DetectedGridsList)
+                {
+                    Prog.Echo("grid:" + grid.Name);
+                    MenuItemsList.Add(new MenuItem(grid.Name, grid.Name, "", "", typeof(string)));
+                }
+                DisplayMenu();
+            }
+            public override void Enter()
+            {
+                Prog.Echo("ENTER CALLED");
+                ChangeSubScreen("targetInfo");
+                if (CurrentSubScreen != null)
+                {
+                    //int scanMode = base.GetMenuItemValue<int>("Mode");
+                    string currentTarget = GetVerticalCursorId();
+                    Prog.Echo("ctarget: " + currentTarget);
+                    if (!string.IsNullOrEmpty(currentTarget))
+                    {
+                        Prog.Echo("TAA");
+                        bool found = false;
+                        foreach (DetectedGrid grid in DetectedGridsList)
+                        {
+                            if (grid.Name == currentTarget)
+                            {
+                                Prog.Echo("ITS A MATCH!");
+                                CurrentSubScreen.Title = grid.Name;
+                                CurrentSubScreen.Text = grid.ToString();
+                                found = true;
+                                break;
+                            }
+                        }
+                        if (!found)
+                        {
+                            Prog.Echo("Error: No such target: " + currentTarget);
+                        }
+                    }
+                    else
+                    {
+                        Prog.Echo("Target was blank");
+                    }
+                }
+            }
+            public override void Delete()
+            {
+                if (DetectedGridsList != null)
+                {
+                    if (DetectedGridsList.Count > 0)
+                    {
+                        for (int i = DetectedGridsList.Count; i > -1; i--)
+                        {
+                            if (i == CursorVerticalPosition)
+                            {
+                                TargetSelectionScreen ts = Screen.GetScreen(Prog, "targetSelection") as TargetSelectionScreen;
+                                LaunchControlScreen lcs = GetScreen(Prog, "launchControl") as LaunchControlScreen;
+                                foreach (MissileLauncher ms in Prog.LaunchersList)
+                                {
+                                    if (ms.Missile.Target.Info.EntityId.ToString() == DetectedGridsList[i].Info.EntityId.ToString())
+                                    {
+                                        ms.Missile.Target = null;
+                                    }
+                                }
+                                if (i > 0)
+                                {
+                                    if (i == DetectedGridsList.Count - 1)
+                                    {
+                                        CursorVerticalPosition--;
+                                    }
+                                }
+                                DetectedGridsList.RemoveAt(i);
+                                ts.DefaultDisplay();
+                                lcs.DefaultDisplay();
+                                DefaultDisplay();
+                                Fade("Deleted");
+                                break;
+                            }
+                        }
+                    }
+                    else
+                    {
+                        FixedText = "No Detected Grids";
+                        Prog.Echo(FixedText);
+                    }
+                }
+                DisplayMenu();
+            }
+        }
+        public class TargetSelectionScreen : Screen
+        {
+            public TargetSelectionScreen(Program prog, string id, Screen parentScreen, string title, string fixedText, string dynamicText, string buttonText, string statusText,
+                Color backgroundColor, Color fontColor, float fontSize)
+                : base(prog, id, parentScreen, title, fixedText, dynamicText, buttonText, statusText, backgroundColor, fontColor, fontSize)
+            {
+                foreach (MissileLauncher launcher in Prog.LaunchersList)
+                {
+                    if (launcher.Missile != null)
+                    {
+                        MenuItemsList.Add(new MenuItem(launcher.LaunchBlock.EntityId.ToString(), launcher.LaunchBlock.CustomName + " - " + launcher.Missile.MissileType.Name, null));
+                    }
+                }
+            }
+            public override void HorizontalCursorChanged(MenuItem menuItem)
+            {
+                TargetsScreen ts = GetScreen(Prog, "targets") as TargetsScreen;
+                if (ts != null)
+                {
+                    foreach (MissileLauncher launcher in Prog.LaunchersList)
+                    {
+                        if (launcher.LaunchBlock.EntityId.ToString() == menuItem.Id)
+                        {
+                            foreach (DetectedGrid grid in ts.DetectedGridsList)
+                            {
+                                if (grid.Info.EntityId.ToString() == menuItem.PredefinedValues[menuItem.CurrentIndex].Value)
+                                {
+                                    launcher.Missile.Target = grid;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            public override void PostChangeVerticalCursor(string direction)
+            {
+                LaunchControlScreen lcs = GetScreen(Prog, "launchControl") as LaunchControlScreen;
+                if (lcs != null)
+                {
+                    TargetsScreen ts = GetScreen(Prog, "targets") as TargetsScreen;
+                    if (ts != null)
+                    {
+                        List<KV> gridList = new List<KV>();
+                        gridList.Add(new KV("NONE", ""));
+                        foreach (DetectedGrid grid in ts.DetectedGridsList)
+                        {
+                            gridList.Add(new KV(grid.Name, grid.Info.EntityId.ToString()));
+                        }
+                        for (int i = 0; i < MenuItemsList.Count; i++)
+                        {
+                            if (i == CursorVerticalPosition)
+                            {
+                                MenuItemsList[i].PredefinedValues = gridList;
+                            }
+                            else
+                            {
+                                MenuItemsList[i].PredefinedValues = null;
+                            }
+                        }
+                    }
+                    else
+                    {
+                        Prog.Echo("Target Screen not found");
+                    }
+                }
+                else
+                {
+                    Prog.Echo("Launch Control Screen not found");
+                }
+            }
+            public override void DefaultDisplay()
+            {
+                PostChangeVerticalCursor("");
+                DisplayMenu();
+            }
+            public override void Delete() { }
+        }
+
+        public class ProfileSelectionScreen : Screen
+        {
+            public ProfileSelectionScreen(Program prog, string id, Screen parentScreen, string title, string fixedText, string dynamicText, string buttonText, string statusText,
+                Color backgroundColor, Color fontColor, float fontSize)
+                : base(prog, id, parentScreen, title, fixedText, dynamicText, buttonText, statusText, backgroundColor, fontColor, fontSize)
+            {
+                foreach (MissileLauncher launcher in Prog.LaunchersList)
+                {
+                    if (launcher.Missile != null)
+                    {
+                        MenuItemsList.Add(new MenuItem(launcher.LaunchBlock.EntityId.ToString(), launcher.LaunchBlock.CustomName + " - " + launcher.Missile.MissileType.Name, null));
+                    }
+                }
+            }
+            public override void HorizontalCursorChanged(MenuItem menuItem)
+            {
+                foreach (MissileLauncher launcher in Prog.LaunchersList)
+                {
+                    if (launcher.LaunchBlock.EntityId.ToString() == menuItem.Id)
+                    {
+                        foreach (MissileProfile mp in launcher.Missile.MissileType.profilesList)
+                        {
+                            if (mp.Id == menuItem.PredefinedValues[menuItem.CurrentIndex].Key)
+                            {
+                                launcher.Missile.MissileProfile = mp;
+                            }
+                        }
+                    }
+                }
+            }
+            public override void PostChangeVerticalCursor(string direction)
+            {
+                List<KV> gridList = new List<KV>();
+                for (int i = 0; i < MenuItemsList.Count; i++)
+                {
+                    foreach (MissileLauncher launcher in Prog.LaunchersList)
+                    {
+                        if (i == CursorVerticalPosition)
+                        {
+                            if (launcher.LaunchBlock.EntityId.ToString() == MenuItemsList[i].Id)
+                            {
+                                //ls.TargetId = menuItem.PredefinedValues[menuItem.CurrentIndex].Value;
+                                //ls.ConnectedMissile
+                                foreach (MissileProfile mp in launcher.Missile.MissileType.profilesList)
+                                {
+                                    gridList.Add(new KV(mp.Id, mp.Name));
+                                }
+                                MenuItemsList[i].PredefinedValues = gridList;
+                            }
+                        }
+                        else
+                        {
+                            MenuItemsList[i].PredefinedValues = null;
+                        }
+                    }
+                }
+            }
+            public override void DefaultDisplay()
+            {
+                Title = "Profile Selection";
+                PostChangeVerticalCursor("");
+                DisplayMenu();
+
+            }
+            public override void Delete() { }
+        }
+
+        public class LaunchSequenceScreen : Screen
+        {
+            public LaunchSequenceScreen(Program prog, string id, Screen parentScreen, string title, string fixedText, string dynamicText, string buttonText, string statusText,
+                Color backgroundColor, Color fontColor, float fontSize)
+                : base(prog, id, parentScreen, title, fixedText, dynamicText, buttonText, statusText, backgroundColor, fontColor, fontSize)
+            {
+                foreach (MissileLauncher launcher in Prog.LaunchersList)
+                {
+                    MenuItemsList.Add(new MenuItem(launcher.LaunchBlock.EntityId.ToString(), launcher.LaunchBlock.CustomName, 1, 0, 25, 0, typeof(double)));
+                }
+            }
+            public override void DefaultDisplay()
+            {
+                PostChangeVerticalCursor("");
+                DisplayMenu();
+            }
+            public override void Delete() { }
+        }
+        public class LaunchControlScreen : Screen
+        {
+            protected int DECOY_INTERVAL = 0;
+            protected int decoyCount = 0;
+            protected int refreshTime = 200;
+            public LaunchControlScreen(Program prog, string id, Screen parentScreen, string title, string fixedText, string dynamicText, string buttonText, string statusText,
+                Color backgroundColor, Color fontColor, float fontSize)
+                : base(prog, id, parentScreen, title, fixedText, dynamicText, buttonText, statusText, backgroundColor, fontColor, fontSize)
+            {
+                MenuItemsList = new List<MenuItem>()
+                {
+                    new MenuItem("launchSingle", "Launch One","","", typeof(string)),
+                    new MenuItem("launchSet", "Launch Set", 1, 0, 25, 0, typeof(double)),
+                    new MenuItem("launchAll", "Launch All","","",typeof(string)),
+                    new MenuItem("freeAim", "Free Aim","","",typeof(string)),
+                    new MenuItem("staggerTime", "Stagger Time", 500, 0, 10000, 0, typeof(double)),
+                    new MenuItem("sequence", "Use Sequence",new List<KV>() {
+                        new KV("Yes", "true"),
+                        new KV("No" , "false")
+                    }),
+                    new MenuItem("sequenceStaggerTime", "Sequence Stagger Time", 500, 0, 10000, 0, typeof(double)),
+                };
+            }
+            public override void DefaultDisplay()
+            {
+                Prog.Echo("Launch Control Default");
+                Title = "Launch Control";
+                DisplayMenu();
+            }
+            public override void Enter()
+            {
+                string currentSelection = GetVerticalCursorId();
+                Prog.Echo("Current Selection: " + currentSelection);
+                //IMyShipController cockpit = Prog.GridTerminalSystem.GetBlockWithName("Cockpit") as IMyShipController;
+                Prog.cockpit.CustomData += "Enter called\n";
+                switch (currentSelection)
+                {
+                    case "launchSingle":
+                        Prog.Echo("firing a single");
+                        Prog.cockpit.CustomData += "firing a single\n";
+                        Fire("once", FindNextMissile(), 0);
+                        break;
+                    case "launchSet":
+                        Prog.cockpit.CustomData += "firing a single\n";
+                        bool foundSequence = false;
+                        int sequenceNum = int.Parse(GetMenuItem("launchSet").Value);
+                        Prog.Echo("Seq num: " + sequenceNum);
+                        if (sequenceNum == 0)
+                        {
+                            Prog.Echo("finding first available sequence");
+                            for (int i = 1; i <= 25; i++)
+                            {
+                                if (FireSequence(i, 0))
+                                {
+                                    foundSequence = true;
+                                    break;
+                                }
+                            }
+                        }
+                        else
+                        {
+                            foundSequence = FireSequence(sequenceNum, 0);
+                        }
+                        if (!foundSequence)
+                        {
+                            Prog.Echo("No sequences found");
+                        }
+                        break;
+                    case "launchAll":
+                        Prog.cockpit.CustomData += "firing all\n";
+                        FireMultiple();
+                        break;
+                    case "freeAim":
+                        break;
+                }
+            }
+
+            public void FireMultiple()
+            {
+                Prog.UpdateLaunchers();
+                bool useSequence = true;
+                int maxSequence = 25;
+                int currentSequence = 1;
+                double staggerInterval = double.Parse(GetMenuItem("staggerTime").Value);
+                double currentStagger = staggerInterval;
+                if (useSequence)
+                {
+                    while (currentSequence <= maxSequence)
+                    {
+                        FireSequence(currentSequence, currentStagger);
+                        currentSequence++;
+                        currentStagger += staggerInterval;
+                    }
+                }
+                else
+                {
+                    foreach (MissileLauncher launcher in Prog.LaunchersList)
+                    {
+                        Fire("all", launcher, currentStagger);
+                        currentStagger += staggerInterval;
+                    }
+                }
+            }
+            public bool FireSequence(int currentSequence, double stagger)
+            {
+                Prog.UpdateLaunchers();
+                LaunchSequenceScreen sq = Screen.GetScreen(Prog, "sequence") as LaunchSequenceScreen;
+                double sequenceStaggerInterval = double.Parse(GetMenuItem("sequenceStaggerTime").Value);
+                bool found = false;
+                Prog.Echo("CALLED FIRE SEQUENCE");
+                foreach (MenuItem item in sq.MenuItemsList)
+                {
+                    if (item.Value == currentSequence.ToString())
+                    {
+                        MissileLauncher ms = GetLauncher(item.Id);
+                        if (ms != null)
+                        {
+                            if (ms.Missile != null)
+                            {
+                                found = true;
+                                Fire("sequence", ms, stagger);
+                                stagger += sequenceStaggerInterval;
+                            }
+                            else
+                            {
+                                Prog.Echo("Connected missile was null");
+                            }
+                        }
+                        else
+                        {
+                            Prog.Echo("ms was null");
+                        }
+                    }
+                }
+                return found;
+            }
+
+            public MissileLauncher GetLauncher(string id)
+            {
+                MissileLauncher ms = null;
+                foreach (MissileLauncher launcher in Prog.LaunchersList)
+                {
+                    if (launcher.LaunchBlock.EntityId.ToString() == id)
+                    {
+                        ms = launcher;
+                    }
+                }
+                return ms;
+            }
+            public bool Fire(string mode, MissileLauncher ms, double staggerTime, bool manualFire = false)
+            {
+                //IMyShipController cockpit = Prog.GridTerminalSystem.GetBlockWithName("Cockpit") as IMyShipController;                
+                Prog.cockpit.CustomData += "Called Fire: " + mode + "\n";
+                bool status = true;
+                TargetsScreen ts = GetScreen(Prog, "targets") as TargetsScreen;
+                double staggerInterval = double.Parse(GetMenuItem("staggerTime").Value);
+                double currentStaggerTime = staggerTime;
+                Prog.Echo("Stag interval: " + staggerInterval);
+                if (ms != null)
+                {
+                    Prog.cockpit.CustomData += "Missile launcher found\n";
+                    Prog.Echo("L " + ms.LaunchBlock.CustomName);
+                    if (ms.Missile != null)
+                    {
+                        Prog.cockpit.CustomData += "Connected missile found\n";
+                        if (ms.Missile.Target != null || manualFire)
+                        {
+                            if (manualFire)
+                            {
+                                Prog.cockpit.CustomData += "Manual fire mode\n";
+                            }
+                            Prog.cockpit.CustomData += "Missile launched!\n";
+                            FireNextMissile(ms, ms.Missile.Target, mode, currentStaggerTime);
+                            currentStaggerTime += staggerInterval;
+                            Prog.Echo("new stag time: " + currentStaggerTime);
+                        }
+                        else
+                        {
+                            Prog.Echo("Target was blank: " + ms.LaunchBlock.CustomName);
+                        }
+                    }
+                    else
+                    {
+                        Prog.Echo("Not connected: " + ms.LaunchBlock.CustomName);
+                    }
+                }
+                else
+                {
+                    Prog.Echo("Error: Launcher was null");
+                }
+                return status;
+            }
+            public MissileLauncher FindNextMissile()
+            {
+                MissileLauncher launcher = null;
+                Prog.UpdateLaunchers();
+                foreach (MissileLauncher ms in Prog.LaunchersList)
+                {
+                    Prog.Echo("L " + ms.LaunchBlock.CustomName);
+                    if (ms.Missile != null)
+                    {
+                        if (ms.Missile.Target != null)
+                        {
+                            launcher = ms;
+                            break;
+                        }
+                        else
+                        {
+                            Prog.Echo("Target blank");
+                        }
+                    }
+                    else
+                    {
+                        Prog.Echo("Not connected");
+                    }
+                }
+                return launcher;
+            }
+
+            public override void TaskRunning(BackgroundTask task)
+            {
+                Prog.Echo("VERISSIMO");
+                if (task.Id == "thrustAway")
+                {
+                    Prog.cockpit.CustomData += "Found thrust away task\n";
+                    ThrustAway();
+                }
+                else if (task.Id == "stopThrustAway")
+                {
+                    Prog.Echo("Called thrusting");
+                    List<IMyThrust> thrusters = new List<IMyThrust>();
+                    //GridTerminalSystem.GetBlocksOfType<IMyThrust>(thrusters);
+                    //IMyBlockGroup blockGroup = GridTerminalSystem.GetBlockGroupWithName("Ship Thrusters");
+                    //blockGroup.GetBlocksOfType<IMyThrust>(thrusters);
+                    Prog.GridTerminalSystem.GetBlocksOfType<IMyThrust>(thrusters);
+                    foreach (IMyThrust thruster in thrusters)
+                    {
+                        if (!thruster.CustomName.Contains("<SWARM>"))
+                        {
+                            thruster.ThrustOverridePercentage = 0;
+                        }
+                    }
+                    /*
+                    if (RunMode == Mode.StopThrustAwayThenFire)
+                    {
+                        if (shipController.GetShipSpeed() == 0)
+                        {
+                            RunMode = Mode.LaunchAll;
+                            refreshTime = 500;
+                        }
+                    }
+                    else
+                    {
+                        Stop("Thrust off");
+                    }*/
+                }
+            }
+
+            public override void TaskEnd(BackgroundTask task)
+            {
+                if (task.Id == "thrustAway")
+                {
+                    Prog.Echo("ENDING THRUST AWAY");
+                    BackgroundTask.AddBackgroundTask(Prog, "stopThrustAway", "Stop Thrust Away", "End Reverse", 2000, 0, Screen.GetScreen(Prog, "launchControl"), true, false, false, true, 1, true);
+                    //safety lock on
+                }
+                else if (task.Id == "stopThrustAway")
+                {
+                    //safety lock off
+                }
+            }
+
+            public void ThrustAway()
+            {
+                Prog.cockpit.CustomData += "Now thrusting away\n";
+                if (Prog.shipController != null)
+                {
+                    //OneDirectionalThrust(shipController, 1, 2);
+                    Prog.OneDirectionalThrust(Prog.shipController, 1, 4);
+                }
+                else
+                {
+                    //displayData.bottom += "Error - Cockpit with name '" + cockpitName + "' not found\n";
+                }
+            }
+            public void FireNextMissile(MissileLauncher ms, DetectedGrid target, string mode, double staggerTime)
+            {
+                IMyProgrammableBlock missilePB = null;
+                IMyShipMergeBlock currentMissileMerge = null;
+                IMyShipMergeBlock chosenLauncher = null;
+
+                MyTuple<IMyShipMergeBlock, IMyProgrammableBlock, bool, bool> missileBlocks = new MyTuple<IMyShipMergeBlock, IMyProgrammableBlock, bool, bool>(null, null, false, true);
+
+                IMyTerminalBlock launcher = ms.LaunchBlock;
+                missileBlocks = Prog.CheckLauncher(launcher);
+                if (missileBlocks.Item1 != null && missileBlocks.Item2 != null)
+                {
+                    missilePB = missileBlocks.Item2;
+                    chosenLauncher = launcher as IMyShipMergeBlock;
+                    currentMissileMerge = missileBlocks.Item1;
+                }
+                if (missilePB != null && chosenLauncher != null && currentMissileMerge != null)
+                {
+                    if (Prog.IGC.IsEndpointReachable(missilePB.EntityId))
+                    {
+                        Prog.cockpit.CustomData += "End point reachable\n";
+                        if (target != null)
+                        {
+                            string gps = Math.Round(target.Info.Position.X, 2) + "," + Math.Round(target.Info.Position.Y, 2) + "," + Math.Round(target.Info.Position.Z, 2);
+                            //string targetDistance = VecToRange(ScanData.Position, cam.GetPosition());
+                            //string targetSpeed = Math.Round(VecMag(ScanData.Velocity), 2);                            
+                            MyTuple<string, double, double, string, MyTuple<string, Vector3D, Vector3, BoundingBoxD, string>> message =
+                              new MyTuple<string, double, double, string, MyTuple<string, Vector3D, Vector3, BoundingBoxD, string>>("Detach", staggerTime, SERVER_SPEED, mode, new MyTuple<string, Vector3D, Vector3, BoundingBoxD, string>
+                              (target.Info.EntityId.ToString(), target.Info.Position, target.Info.Velocity, target.Info.BoundingBox, target.Info.Type.ToString()));
+
+                            /*
+                            MyTuple<string, double, double, string, MyTuple<string, Vector3D, Vector3, BoundingBoxD>> message =
+                              new MyTuple<string, double, double, string, MyTuple<string, Vector3D, Vector3, BoundingBoxD>>("Detach", staggerTime, SERVER_SPEED, mode, new MyTuple<string, Vector3D, Vector3, BoundingBoxD>
+                              (target.Info.EntityId.ToString(), target.Info.Position, target.Info.Velocity, target.Info.BoundingBox));
+                            */
+                            Prog.cockpit.CustomData += "Message sent\n";
+                            decoyCount++;
+                            Prog.IGC.SendUnicastMessage(missilePB.EntityId, Prog.Me.EntityId.ToString(), message);
+                            Prog.Echo("MESSAGE SENT\n" + target.Info.Type.ToString());
+                            /*
+                            if (singleFire)
+                            {
+                                Prog.RunMode = Mode.WaitForMsgReplySingle;
+                            }
+                            else
+                            {
+                                Prog.RunMode = Mode.WaitForMsgReplayAll;
+                            }*/
+                            //BackgroundTask.AddBackgroundTask(Prog, "waitForReply", "Waiting Launch Confirmation", "Waiting", 0, 2000, this, true, true, false);
+                            //BackgroundTask.Activate(Prog);
+                        }
+                        else
+                        {
+                            Prog.cockpit.CustomData += "Target was null\n";
+                            Prog.Stop("Target was null");
+                        }
+                    }
+                    else
+                    {
+                        Prog.cockpit.CustomData += "Invalid PB data\n";
+                        Prog.Stop("Error: MSG Unable to sened to: " + missilePB.EntityId);
+                    }
+                }
+                else
+                {
+                    Prog.cockpit.CustomData += "Missile Merge not found\n";
+                    Prog.Stop("Missile Merge not found");
+                }
+            }
+
+
+
+            public void UpdateLaunchers1(bool display = false)
+            {
+                StringBuilder sb = new StringBuilder("");
+                foreach (MissileLauncher launcher in Prog.LaunchersList)
+                {
+                    IMyShipMergeBlock missileMerge = Prog.GetMerge(launcher.LaunchBlock);
+                    //launcher.ConnectedMissile = missileMerge;
+
+                    if (missileMerge == null)
+                    {
+                        if (launcher.Status == MissileLauncher.LauncherStatus.Empty)
+                        {
+                            //launcher.Status = "Launched";
+                        }
+                        else
+                        {
+                            //launcher.Status = "";
+                        }
+                    }
+                    else
+                    {
+                        string id = "";
+                        MissileType missileType = null;
+                        foreach (MissileType mt in Prog.missileTypeList)
+                        {
+                            if (mt.Id == id)
+                            {
+                                missileType = mt;
+                                break;
+                            }
+                        }
+                        if (missileType == null)
+                        {
+                            missileType = new MissileType(Prog, launcher.LaunchBlock);
+                            Prog.missileTypeList.Add(missileType);
+                        }
+                        AttachedMissile missile = new AttachedMissile(missileType, launcher);
+                        if (launcher.Status == MissileLauncher.LauncherStatus.Empty)
+                        {
+                            launcher.Status = MissileLauncher.LauncherStatus.Loaded;
+                        }
+                    }
+                    sb.AppendLine(launcher.LaunchBlock.CustomName + ": " + launcher.Status);
+                }
+                if (display)
+                {
+                    FixedText = sb.ToString();
+                    Display();
+                }
+            }
+
+            public override void Delete() { }
+        }
+
+        public class SettingsScreen : Screen
+        {
+            public SettingsScreen(Program prog, string id, Screen parentScreen, string title, string fixedText, string dynamicText, string buttonText, string statusText,
+                Color backgroundColor, Color fontColor, float fontSize)
+                : base(prog, id, parentScreen, title, fixedText, dynamicText, buttonText, statusText, backgroundColor, fontColor, fontSize)
+            {
+                MenuItemsList = new List<MenuItem>()
+                {
+                    new MenuItem("font", "Font","","",typeof(string)),
+                    new MenuItem("fontSize", "Font Size","","",typeof(string)),
+                    new MenuItem("load", "Load", new List<KV>() {
+                        new KV("Yes", "1"),
+                        new KV("No" , "2")
+                    }),
+                    new MenuItem("backgroundColor", "Background Color", new List<KV>() {
+                        new KV("Ignore", "true"),
+                        new KV("Scan" , "false")
+                    }),
+                    new MenuItem("fontColor", "Font Color", new List<KV>() {
+                        new KV("Ignore", "true"),
+                        new KV("Scan" , "false")
+                    }),
+                    new MenuItem("test", "Test", 10, 0, 30, 0, typeof(int)),
+                    new MenuItem("targets", "Targets","","targets",typeof(string)),
+                };
+            }
+
+            public override void DefaultDisplay()
+            {
+                DisplayMenu();
+            }
+
+            public override void Delete() { }
+        }
+
+        public class PreparationScreen : Screen
+        {
+            private List<IMyShipMergeBlock> seperationMergesList = new List<IMyShipMergeBlock>();
+            private List<IMyTerminalBlock> pbList = new List<IMyTerminalBlock>();
+            private MyIni tempIni = new MyIni();
+            private List<MyIniKey> keysList = new List<MyIniKey>();
+            public PreparationScreen(Program prog, string id, Screen parentScreen, string title, string fixedText, string dynamicText, string buttonText, string statusText,
+                Color backgroundColor, Color fontColor, float fontSize)
+                : base(prog, id, parentScreen, title, fixedText, dynamicText, buttonText, statusText, backgroundColor, fontColor, fontSize)
+            {
+                /*
+                MenuItemsList = new List<MenuItem>()
+                {
+                    new MenuItem("burnStart", "Start","","",typeof(string)),
+                    new MenuItem("burnStop", "Stop","","",typeof(string)),
+                };
+                SubScreenList.Add(new SubScreen("burnScreen", "", "", "", Color.Black, "Monospace", Color.White, 0.6f));
+                */
+            }
+
+            public override void Enter()
+            {
+                string currentSelection = GetVerticalCursorId();
+                Prog.Echo("Current Selection: " + currentSelection);
+            }
+
+            public override void DefaultDisplay()
+            {
+                DisplayMenu();
+            }
+
+            public override void TaskRunning(BackgroundTask task)
+            {
+                Prog.Echo("task running: " + task.Id);
+                Prog.shipController.DampenersOverride = true;
+            }
+
+            public override void Delete() { }
+        }
+
+        public class SubScreen
+        {
+            public string Id { get; }
+            public string Title { get; set; }
+            public string Text { get; set; }
+            public string Status { get; set; }
+            public Color BackgroundColor { get; set; } = Color.Black;
+            public string Font { get; set; } = "Monospace";
+            public Color FontColor { get; set; } = Color.White;
+            public float FontSize { get; set; } = 0.7f;
+            public SubScreen(string id, string title, string text, string status, Color backgroundColor, string font, Color fontColor, float fontSize)
+            {
+                Id = id;
+                Title = title;
+                Text = text;
+                Status = status;
+                BackgroundColor = backgroundColor;
+                Font = font;
+                FontColor = fontColor;
+                FontSize = fontSize;
+            }
+        }
+
+        public class MenuItem
+        {
+            public string Id { get; }
+            public string Name { get; set; }
+            public Type DataType { get; set; } = typeof(string);
+            public string Value { get; set; } = "";
+            public string DisplayText { get; set; } = "";
+            public string ScreenId { get; set; } = "";
+            public double Increment { get; set; } = 0;
+            public double MinValue { get; set; } = 0;
+            public double MaxValue { get; set; } = 0;
+            public int CurrentIndex { get; set; } = 0;
+            public List<KV> PredefinedValues { get; set; } = new List<KV>();
+            public string ItemType = "btn";
+            public string Sprite;
+            public float SpriteRotation;
+            public Color SpriteColor;
+            public Color TextColor;
+
+            public MenuItem(string id, string name, string value, string screenId, Type dataType)
+            {
+                Id = id;
+                Name = name;
+                Value = value;
+                DisplayText = Value;
+                ScreenId = screenId;
+                DataType = dataType;
+                ItemType = "btn";
+            }
+
+            public MenuItem(string id, string name, string value, string screenId, Type dataType, string sprite, float spriteRotation, Color spriteColor, Color textColor)
+                :this(id, name, value, screenId, dataType)
+            {
+                Sprite = sprite;
+                SpriteRotation = spriteRotation;
+                SpriteColor = spriteColor;
+                TextColor = textColor;
+            }            
+
+            public MenuItem(string id, string name, double increment, double minValue, double maxValue, double startingValue, Type dataType)
+            {
+                Id = id;
+                Name = name;
+                Increment = increment;
+                MinValue = minValue;
+                MaxValue = maxValue;
+                DataType = dataType;
+                double val = startingValue;
+                if (val > maxValue)
+                {
+                    val = maxValue;
+                }
+                else if (val < minValue)
+                {
+                    val = minValue;
+                }
+                Value = val.ToString();
+                DisplayText = Value;
+                ItemType = "range";
+            }
+
+            public MenuItem(string id, string name, List<KV> predefinedValues)
+            {
+                Id = id;
+                Name = name;
+                PredefinedValues = predefinedValues;
+                CurrentIndex = 0;
+                ItemType = "list";
+                if ((PredefinedValues != null) && PredefinedValues.Count > 0)
+                {
+                    Value = PredefinedValues[0].Value;
+                    DisplayText = PredefinedValues[0].Key;
+                }
+                else
+                {
+                    Value = "-";
+                    DisplayText = "NONE";
+                }
+            }
+
+            public KV GetSelectedPredefined()
+            {
+                KV kv = null;
+                if (PredefinedValues != null)
+                {
+                    if (PredefinedValues.Count > 0)
+                    {
+                        if (PredefinedValues.ElementAt(CurrentIndex) != null)
+                        {
+                            kv = PredefinedValues.ElementAt(CurrentIndex);
+                        }
+                    }
+                }
+                return kv;
+            }
+        }
+    }
+}
