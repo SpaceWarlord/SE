@@ -1,0 +1,197 @@
+Block Name: Transparent LCD
+
+    Surface Name: TransparentScreenArea
+    Width: 512
+    Height: 512
+
+------------------------------------
+
+Block Name: LCD Panel
+
+    Surface Name: ScreenArea
+    Width: 512
+    Height: 512
+
+------------------------------------
+
+Block Name: Wide LCD panel
+
+    Surface Name: ScreenArea
+    Width: 1024
+    Height: 512
+
+------------------------------------
+
+Block Name: Corner LCD Top
+
+    Surface Name: ScreenArea
+    Width: 512
+    Height: 162.9091
+
+------------------------------------
+
+Block Name: Corner LCD Bottom
+
+    Surface Name: ScreenArea
+    Width: 512
+    Height: 162.9091
+
+------------------------------------
+
+Block Name: Corner LCD Flat Top
+
+    Surface Name: ScreenArea
+    Width: 512
+    Height: 204.8
+
+------------------------------------
+
+Block Name: Corner LCD Flat Bottom
+
+    Surface Name: ScreenArea
+    Width: 512
+    Height: 204.8
+
+------------------------------------
+
+Block Name: Text panel
+
+    Surface Name: ScreenArea
+    Width: 512
+    Height: 512
+
+------------------------------------
+
+Block Name: Programmable block
+
+    Surface Name: Large Display
+    Width: 256
+    Height: 256
+
+
+    Surface Name: Keyboard
+    Width: 256
+    Height: 93.09091
+
+------------------------------------
+
+Block Name: Cockpit
+
+    Surface Name: Top Center Screen
+    Width: 256
+    Height: 256
+
+
+    Surface Name: Top Left Screen
+    Width: 256
+    Height: 192
+
+
+    Surface Name: Top Right Screen
+    Width: 256
+    Height: 192
+
+
+    Surface Name: Keyboard
+    Width: 256
+    Height: 139.6364
+
+------------------------------------
+
+Block Name: Industrial Cockpit
+
+    Surface Name: Top Left Screen
+    Width: 256
+    Height: 182.8571
+
+
+    Surface Name: Top Center Screen
+    Width: 256
+    Height: 170.6667
+
+
+    Surface Name: Top Right Screen
+    Width: 256
+    Height: 182.8571
+
+
+    Surface Name: Keyboard
+    Width: 256
+    Height: 128
+
+
+    Surface Name: Numpad
+    Width: 106.6667
+    Height: 128
+
+------------------------------------
+
+Block Name: Rover Cockpit
+
+    Surface Name: Left Screen
+    Width: 256
+    Height: 153.6
+
+
+    Surface Name: Top Center Screen
+    Width: 256
+    Height: 153.6
+
+
+    Surface Name: Right Screen
+    Width: 256
+    Height: 153.6
+
+
+    Surface Name: Small Screen
+    Width: 256
+    Height: 192
+
+
+    Surface Name: Bottom Right Screen
+    Width: 256
+    Height: 192
+
+------------------------------------
+
+Block Name: Fighter Cockpit
+
+    Surface Name: Top Center Screen
+    Width: 256
+    Height: 153.6
+
+
+    Surface Name: Top Left Screen
+    Width: 128
+    Height: 85.33334
+
+
+    Surface Name: Top Right Screen
+    Width: 128
+    Height: 85.33334
+
+
+    Surface Name: Keyboard
+    Width: 256
+    Height: 109.7143
+
+
+    Surface Name: Bottom Center Screen
+    Width: 204.8
+    Height: 256
+
+
+    Surface Name: Numpad
+    Width: 102.4
+    Height: 128
+
+------------------------------------
+
+Block Name: Control Seat
+
+    Surface Name: Large Display
+    Width: 512
+    Height: 307.2
+
+------------------------------------
+
