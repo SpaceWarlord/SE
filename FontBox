@@ -1,0 +1,41 @@
+                float boxPadding = 0f;
+                StringBuilder sbText = new StringBuilder(text);
+                Vector2 textPixels = md.Surface.MeasureStringInPixels(sbText, font, fontSize);
+                RectangleF rowBox = new RectangleF(md.Viewport.X, md.Viewport.Y + CurrentRowHeight, md.Viewport.Width, height);
+                Vector2 boxCenterPosition = new Vector2(rowBox.X, rowBox.Center.Y);
+                Vector2 boxTextPosition = new Vector2(rowBox.Center.X, rowBox.Y);
+                CurrentRowHeight += textPixels.Y + boxPadding;
+                md.Frame.Add(new MySprite()
+                {
+                    Type = SpriteType.TEXTURE,
+                    Data = "SquareSimple",
+                    Position = boxCenterPosition,
+                    Size = rowBox.Size,
+                    // Color = new Color(200, 0, 0),
+                    Color = backgroundColor,
+                    Alignment = TextAlignment.LEFT
+                });
+                
+                if(rowBox.Height>0 && textPixels.Y > (rowBox.Height - boxPadding))
+                {
+                    Prog.Log("SCALING DOWN FONT.\nText height: " + textPixels.Y + "\nRow Height: " + (rowBox.Height-boxPadding) +"\nSHeight: " + height);
+                    while (textPixels.Y > (rowBox.Height - boxPadding))
+                    {
+                        fontSize -= 0.1f;                        
+                        textPixels = md.Surface.MeasureStringInPixels(sbText, font, fontSize);
+                        Prog.Log("Font size: " + fontSize + "\nPixel Height: " + textPixels.Y);
+                        // fontSize=TextScaler(md, rowBox.Height, sbText, font, fontSize);
+                    }
+                }
+                bool scaleUpText = true;
+                if (scaleUpText)
+                {
+                    Prog.Log("SCALING UP FONT");
+                    while (textPixels.Y < (rowBox.Height - boxPadding))
+                    {
+                        fontSize += 0.1f;                        
+                        textPixels = md.Surface.MeasureStringInPixels(sbText, font, fontSize);
+                        Prog.Log("Font size: " + fontSize + "\nPixel Height: " + textPixels.Y);
+                        // fontSize=TextScaler(md, rowBox.Height, sbText, font, fontSize);
+                    }
+                }
